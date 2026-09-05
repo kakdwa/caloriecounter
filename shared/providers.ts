@@ -1,29 +1,11 @@
+// AI provider adapters. Runs in Node (behind the API server) and in the browser (static hosting).
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import type { Provider, ProviderStatus } from "../shared/types.ts";
+import type { Provider } from "./types";
+import { PROVIDERS } from "./catalog";
 
-export const PROVIDERS: Record<Provider, { label: string; model: string; env: string }> = {
-  deepseek: { label: "DeepSeek", model: "deepseek-chat", env: "DEEPSEEK_API_KEY" },
-  anthropic: { label: "Claude", model: "claude-opus-5", env: "ANTHROPIC_API_KEY" },
-};
-
-export function providerStatuses(): ProviderStatus[] {
-  return (Object.keys(PROVIDERS) as Provider[]).map((provider) => ({
-    provider,
-    configured: Boolean(process.env[PROVIDERS[provider].env]),
-    label: PROVIDERS[provider].label,
-    model: PROVIDERS[provider].model,
-  }));
-}
-
-export function defaultProvider(): Provider {
-  const wanted = process.env.AI_PROVIDER as Provider | undefined;
-  if (wanted && wanted in PROVIDERS) return wanted;
-  if (process.env.DEEPSEEK_API_KEY) return "deepseek";
-  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
-  return "deepseek";
-}
+export { PROVIDERS };
 
 export type Effort = "low" | "medium" | "high";
 
@@ -47,19 +29,19 @@ export class AiError extends Error {
   }
 }
 
-/** Resolve a client for the request. A key sent by the app wins over the server's environment. */
-export function resolveClient(provider: Provider | undefined, apiKey: string | undefined): AiClient {
-  const p: Provider = provider && provider in PROVIDERS ? provider : defaultProvider();
-  const key = apiKey?.trim() || process.env[PROVIDERS[p].env];
-  if (!key) return demoClient(p);
-  return p === "anthropic" ? anthropicClient(key) : deepseekClient(key);
+const inBrowser = typeof window !== "undefined";
+
+export function makeClient(provider: Provider, apiKey: string | undefined): AiClient {
+  const key = apiKey?.trim();
+  if (!key) return demoClient(provider);
+  return provider === "anthropic" ? anthropicClient(key) : deepseekClient(key);
 }
 
 /** Verify a key with a request that costs no tokens. */
 export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok: boolean; message: string }> {
   try {
     if (provider === "anthropic") {
-      await new Anthropic({ apiKey }).models.list({ limit: 1 });
+      await new Anthropic({ apiKey, dangerouslyAllowBrowser: inBrowser }).models.list({ limit: 1 });
     } else {
       const res = await fetch("https://api.deepseek.com/models", { headers: { authorization: `Bearer ${apiKey}` } });
       if (res.status === 401 || res.status === 403) return { ok: false, message: "DeepSeek rejected this key." };
@@ -76,7 +58,7 @@ export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok
 // ---------------------------------------------------------------- Anthropic
 
 function anthropicClient(apiKey: string): AiClient {
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: inBrowser });
   return {
     provider: "anthropic",
     demo: false,
@@ -97,7 +79,7 @@ function anthropicClient(apiKey: string): AiClient {
         if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) throw new AiError("Claude rejected the API key.", 401);
         if (error instanceof Anthropic.RateLimitError) throw new AiError("Claude is rate limiting right now. Try again in a moment.", 429);
         if (error instanceof Anthropic.APIError) throw new AiError(`Claude error ${error.status}: ${error.message}`);
-        throw error;
+        throw new AiError("Could not reach Claude. Check your connection.");
       }
     },
   };
@@ -112,21 +94,26 @@ function deepseekClient(apiKey: string): AiClient {
     async json(req) {
       const schemaJson = JSON.stringify(z.toJSONSchema(req.schema));
       const system = `${req.system}\n\nRespond with a single JSON object and nothing else. It must match this JSON schema exactly:\n${schemaJson}`;
-      const res = await fetch("https://api.deepseek.com/chat/completions", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: PROVIDERS.deepseek.model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: req.user },
-          ],
-          response_format: { type: "json_object" },
-          temperature: req.effort === "low" ? 0.2 : 0.5,
-          max_tokens: req.maxTokens ?? 4000,
-        }),
-      });
-      if (res.status === 401) throw new AiError("DeepSeek rejected the API key.", 401);
+      let res: Response;
+      try {
+        res = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: PROVIDERS.deepseek.model,
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: req.user },
+            ],
+            response_format: { type: "json_object" },
+            temperature: req.effort === "low" ? 0.2 : 0.5,
+            max_tokens: req.maxTokens ?? 4000,
+          }),
+        });
+      } catch {
+        throw new AiError("Could not reach DeepSeek. Check your connection.");
+      }
+      if (res.status === 401 || res.status === 403) throw new AiError("DeepSeek rejected the API key.", 401);
       if (res.status === 429) throw new AiError("DeepSeek is rate limiting right now. Try again in a moment.", 429);
       if (!res.ok) throw new AiError(`DeepSeek error ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
@@ -163,18 +150,8 @@ function demoClient(provider: Provider): AiClient {
 // Canned answers keyed by schema description; only used when no API key is available.
 const demoSamples: Record<string, (user: string) => unknown> = {
   profile: () => ({
-    age: 34,
-    sex: "unspecified",
-    heightCm: 178,
-    weightKg: 82.6,
-    unit: "lb",
-    activity: "moderate",
-    goal: "lose",
-    goalWeightKg: 77.1,
-    targetDate: null,
-    carbPreference: "default",
-    priorities: ["keep muscle"],
-    missing: [],
+    age: 34, sex: "unspecified", heightCm: 178, weightKg: 82.6, unit: "lb", activity: "moderate",
+    goal: "lose", goalWeightKg: 77.1, targetDate: null, carbPreference: "default", priorities: ["keep muscle"], missing: [],
   }),
   plan_copy: () => ({
     summary: "A gentle deficit with protein kept high, so what you lose is fat, not muscle. About three quarters of a pound a week.",

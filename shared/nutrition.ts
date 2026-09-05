@@ -1,4 +1,4 @@
-import type { Profile, Targets } from "../shared/types.ts";
+import type { Profile, Targets } from "./types";
 
 const ACTIVITY: Record<Profile["activity"], number> = {
   sedentary: 1.2,

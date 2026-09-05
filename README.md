@@ -2,7 +2,13 @@
 
 An AI-native calorie and macro tracker for your phone. You describe yourself and your goal in a sentence, the app turns it into a plan. You say what you ate, it turns that into calories and macros. No forms.
 
-## Run it
+## Use it on your phone
+
+The app is hosted on GitHub Pages at **https://kakdwa.github.io/caloriecounter/**. Open it in Safari, tap Share → **Add to Home Screen**, then open it from the icon, tap the gear and paste your DeepSeek or Claude key. There is no server in this setup: your key stays in the browser and calls go straight from your phone to the provider. Your log lives in the browser too, so use one browser per phone.
+
+Every push to `main` redeploys it through `.github/workflows/pages.yml`.
+
+## Run it locally
 
 ```bash
 npm install
@@ -42,7 +48,7 @@ npm start        # serves dist/ and the API on API_PORT (default 8787)
 
 ## Layout
 
-- `server/` Hono API: `/api/plan`, `/api/log`, `/api/providers`. `ai.ts` holds the provider adapters, `nutrition.ts` the math.
-- `shared/types.ts` types shared by client and server.
+- `shared/` the heart of it: `pipeline.ts` (prompts and schemas for the two AI calls), `providers.ts` (DeepSeek and Claude adapters plus demo mode), `nutrition.ts` (the math), `types.ts`. Runs in Node behind the API and in the browser on static hosting.
+- `server/` a thin Hono API over the pipeline: `/api/plan`, `/api/log`, `/api/check`, `/api/providers`. Optional; the app detects whether it exists.
 - `src/` React app: `screens/` one file per screen, `lib/` storage, API client, speech, formatting.
 - `design/` the original design canvas and the script that generates it.

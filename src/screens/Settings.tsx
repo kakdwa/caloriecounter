@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Provider, ProviderStatus } from "../../shared/types";
-import { checkKey } from "../lib/api";
+import { checkKey, type Mode } from "../lib/api";
+import { PROVIDERS } from "../../shared/catalog";
 import { store, useStore } from "../lib/store";
 import { Sheet } from "../components/Sheet";
 import { CheckIcon } from "../components/Icons";
@@ -8,12 +9,13 @@ import { CheckIcon } from "../components/Icons";
 interface Props {
   providers: ProviderStatus[] | null;
   serverDefault: Provider;
+  mode: Mode;
   onClose: () => void;
   onReset: () => void;
 }
 
 /** Pick which model answers, and give it a key. Keys live in this browser only. */
-export function Settings({ providers, serverDefault, onClose, onReset }: Props) {
+export function Settings({ providers, serverDefault, mode, onClose, onReset }: Props) {
   const { settings } = useStore();
   const [confirm, setConfirm] = useState(false);
   const [check, setCheck] = useState<{ provider: Provider; busy: boolean; ok?: boolean; message?: string } | null>(null);
@@ -34,7 +36,11 @@ export function Settings({ providers, serverDefault, onClose, onReset }: Props) 
     <Sheet onClose={onClose}>
       <div className="stack gap-8">
         <h2>Which AI should I use?</h2>
-        <div className="caption">Paste a key from the provider's site. It stays in this browser and is only sent to your own server.</div>
+        <div className="caption">
+          {mode === "direct"
+            ? "Paste a key from the provider's site. It stays in this browser and goes straight to that provider, nowhere else."
+            : "Paste a key from the provider's site. It stays in this browser and is only sent to your own server."}
+        </div>
       </div>
       <div className="stack mt-16">
         {(providers ?? []).map((p) => {
@@ -83,7 +89,7 @@ export function Settings({ providers, serverDefault, onClose, onReset }: Props) 
                   {!p.configured && !local && (
                     <div className="caption">
                       Without a key the app runs in demo mode with sample answers.{" "}
-                      <a href={p.provider === "deepseek" ? "https://platform.deepseek.com/api_keys" : "https://console.anthropic.com/settings/keys"} target="_blank" rel="noreferrer">
+                      <a href={PROVIDERS[p.provider].keysUrl} target="_blank" rel="noreferrer">
                         Get a {p.label} key
                       </a>
                     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Plan, Provider, ProviderStatus } from "../shared/types";
-import { getProviders, parseLog, ApiError } from "./lib/api";
+import { getProviders, parseLog, ApiError, type Mode } from "./lib/api";
 import { localDate } from "./lib/format";
 import { store, uid, useStore } from "./lib/store";
 import { totals } from "./lib/totals";
@@ -21,12 +21,14 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
   const [serverDefault, setServerDefault] = useState<Provider>("deepseek");
+  const [mode, setMode] = useState<Mode>("server");
 
   useEffect(() => {
     getProviders()
       .then((r) => {
         setProviders(r.providers);
         setServerDefault(r.default);
+        setMode(r.mode);
       })
       .catch(() => setProviders([]));
   }, []);
@@ -126,6 +128,7 @@ export default function App() {
         <Settings
           providers={providers}
           serverDefault={serverDefault}
+          mode={mode}
           onClose={() => setSettingsOpen(false)}
           onReset={() => {
             store.reset();

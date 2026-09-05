@@ -5,7 +5,7 @@ import { useSpeech } from "../lib/speech";
 import { GearIcon, MicIcon } from "../components/Icons";
 
 interface Props {
-  onPlan: (plan: Plan, demo: boolean) => void;
+  onPlan: (plan: Plan) => void;
   onSettings: () => void;
   demo: boolean;
 }
@@ -32,7 +32,7 @@ export function Goal({ onPlan, onSettings, demo }: Props) {
         setQuestion(res.question);
         setText((t) => t.trimEnd() + " ");
       } else {
-        onPlan(res.plan, Boolean(res.demo));
+        onPlan(res.plan);
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Something went wrong. Try again.");

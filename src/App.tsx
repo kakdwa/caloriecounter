@@ -1,6 +1,6 @@
-import { useState } from "react";
-import type { Plan } from "../shared/types";
-import { parseLog, ApiError } from "./lib/api";
+import { useEffect, useState } from "react";
+import type { Plan, Provider, ProviderStatus } from "../shared/types";
+import { getProviders, parseLog, ApiError } from "./lib/api";
 import { localDate } from "./lib/format";
 import { store, uid, useStore } from "./lib/store";
 import { totals } from "./lib/totals";
@@ -14,12 +14,27 @@ import { Settings } from "./screens/Settings";
 type Screen = "goal" | "plan" | "today" | "log" | "progress";
 
 export default function App() {
-  const { plan, entries, weighIns } = useStore();
+  const { plan, entries, weighIns, settings } = useStore();
   const [screen, setScreen] = useState<Screen>(plan ? "today" : "goal");
   const [planIsNew, setPlanIsNew] = useState(!plan);
   const [log, setLog] = useState<LogState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [demo, setDemo] = useState(false);
+  const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
+  const [serverDefault, setServerDefault] = useState<Provider>("deepseek");
+
+  useEffect(() => {
+    getProviders()
+      .then((r) => {
+        setProviders(r.providers);
+        setServerDefault(r.default);
+      })
+      .catch(() => setProviders([]));
+  }, []);
+
+  // Demo mode: the active provider has no key on the server and none on this device.
+  const activeProvider = settings.provider ?? serverDefault;
+  const activeStatus = providers?.find((p) => p.provider === activeProvider);
+  const demo = providers !== null && !(activeStatus?.configured || Boolean(settings.apiKeys[activeProvider]?.trim()));
 
   const today = localDate();
   const todaysEntries = entries.filter((e) => e.date === today);
@@ -35,7 +50,6 @@ export default function App() {
     setScreen("log");
     try {
       const res = await parseLog(text, { remainingKcal, remainingProteinG, unit: plan.profile.unit }, prevItems);
-      if (res.demo) setDemo(true);
       setLog({ text: shown, status: "ready", result: res });
     } catch (e) {
       setLog({ text: shown, status: "error", error: e instanceof ApiError ? e.message : "Something went wrong. Try again." });
@@ -54,16 +68,15 @@ export default function App() {
     setScreen(r.kind === "weight" ? "progress" : "today");
   }
 
-  function onPlan(p: Plan, isDemo: boolean) {
+  function onPlan(p: Plan) {
     store.setPlan(p);
-    setDemo(isDemo);
     setPlanIsNew(true);
     setScreen("plan");
   }
 
   return (
     <>
-      {screen === "goal" && <Goal onPlan={onPlan} />}
+      {screen === "goal" && <Goal onPlan={onPlan} demo={demo} onSettings={() => setSettingsOpen(true)} />}
       {screen === "plan" && plan && (
         <PlanScreen
           plan={plan}
@@ -88,6 +101,7 @@ export default function App() {
             setPlanIsNew(false);
             setScreen("plan");
           }}
+          onSettings={() => setSettingsOpen(true)}
           onRemove={(id) => store.removeEntry(id)}
         />
       )}
@@ -110,6 +124,8 @@ export default function App() {
       )}
       {settingsOpen && (
         <Settings
+          providers={providers}
+          serverDefault={serverDefault}
           onClose={() => setSettingsOpen(false)}
           onReset={() => {
             store.reset();

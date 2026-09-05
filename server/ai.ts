@@ -55,6 +55,24 @@ export function resolveClient(provider: Provider | undefined, apiKey: string | u
   return p === "anthropic" ? anthropicClient(key) : deepseekClient(key);
 }
 
+/** Verify a key with a request that costs no tokens. */
+export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    if (provider === "anthropic") {
+      await new Anthropic({ apiKey }).models.list({ limit: 1 });
+    } else {
+      const res = await fetch("https://api.deepseek.com/models", { headers: { authorization: `Bearer ${apiKey}` } });
+      if (res.status === 401 || res.status === 403) return { ok: false, message: "DeepSeek rejected this key." };
+      if (!res.ok) return { ok: false, message: `DeepSeek answered ${res.status}. Try again in a moment.` };
+    }
+    return { ok: true, message: `${PROVIDERS[provider].label} accepted the key.` };
+  } catch (error) {
+    if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) return { ok: false, message: "Claude rejected this key." };
+    if (error instanceof Anthropic.APIError) return { ok: false, message: `Claude answered ${error.status}. Try again in a moment.` };
+    return { ok: false, message: "Could not reach the provider. Check your connection." };
+  }
+}
+
 // ---------------------------------------------------------------- Anthropic
 
 function anthropicClient(apiKey: string): AiClient {

@@ -1,64 +1,95 @@
 import { useEffect, useState } from "react";
 import type { Provider, ProviderStatus } from "../../shared/types";
-import { getProviders } from "../lib/api";
+import { checkKey } from "../lib/api";
 import { store, useStore } from "../lib/store";
 import { Sheet } from "../components/Sheet";
+import { CheckIcon } from "../components/Icons";
 
 interface Props {
+  providers: ProviderStatus[] | null;
+  serverDefault: Provider;
   onClose: () => void;
   onReset: () => void;
 }
 
-export function Settings({ onClose, onReset }: Props) {
+/** Pick which model answers, and give it a key. Keys live in this browser only. */
+export function Settings({ providers, serverDefault, onClose, onReset }: Props) {
   const { settings } = useStore();
-  const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
-  const [serverDefault, setServerDefault] = useState<Provider>("deepseek");
   const [confirm, setConfirm] = useState(false);
-
-  useEffect(() => {
-    getProviders()
-      .then((r) => {
-        setProviders(r.providers);
-        setServerDefault(r.default);
-      })
-      .catch(() => setProviders([]));
-  }, []);
+  const [check, setCheck] = useState<{ provider: Provider; busy: boolean; ok?: boolean; message?: string } | null>(null);
 
   const active = settings.provider ?? serverDefault;
+
+  useEffect(() => setCheck(null), [active]);
+
+  async function runCheck(provider: Provider) {
+    const key = settings.apiKeys[provider]?.trim();
+    if (!key) return;
+    setCheck({ provider, busy: true });
+    const r = await checkKey(provider, key);
+    setCheck({ provider, busy: false, ...r });
+  }
 
   return (
     <Sheet onClose={onClose}>
       <div className="stack gap-8">
         <h2>Which AI should I use?</h2>
-        <div className="caption">Keys you enter stay on this device and are only sent to your own server.</div>
+        <div className="caption">Paste a key from the provider's site. It stays in this browser and is only sent to your own server.</div>
       </div>
       <div className="stack mt-16">
         {(providers ?? []).map((p) => {
           const on = active === p.provider;
-          const hasKey = p.configured || Boolean(settings.apiKeys[p.provider]);
+          const local = settings.apiKeys[p.provider] ?? "";
+          const status = p.configured ? "key on server" : local ? "key on this device" : "no key yet";
           return (
             <div className="stack" key={p.provider}>
               <button className="option" onClick={() => store.setSettings({ provider: p.provider })}>
                 <span className={`radio ${on ? "on" : ""}`} />
                 <span style={{ flexGrow: 1, textAlign: "left" }}>
                   <div style={{ fontSize: 16, fontWeight: 500 }}>{p.label}</div>
-                  <div className="caption">
-                    {p.model} · {p.configured ? "key on server" : settings.apiKeys[p.provider] ? "key on this device" : "no key yet"}
-                  </div>
+                  <div className="caption">{p.model} · {status}</div>
                 </span>
               </button>
-              {on && !p.configured && (
-                <input
-                  className="field"
-                  style={{ marginBottom: 16 }}
-                  type="password"
-                  placeholder={`${p.label} API key`}
-                  autoComplete="off"
-                  value={settings.apiKeys[p.provider] ?? ""}
-                  onChange={(e) => store.setSettings({ apiKeys: { ...settings.apiKeys, [p.provider]: e.target.value } })}
-                />
+              {on && (
+                <div className="stack gap-8" style={{ marginBottom: 16 }}>
+                  <div className="row gap-8">
+                    <input
+                      className="field"
+                      type="password"
+                      placeholder={p.configured ? "Server key in use; paste one to override" : `${p.label} API key`}
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={local}
+                      onChange={(e) => {
+                        setCheck(null);
+                        store.setSettings({ apiKeys: { ...settings.apiKeys, [p.provider]: e.target.value } });
+                      }}
+                    />
+                    <button
+                      className="btn"
+                      style={{ width: "auto", height: 44, padding: "0 16px", borderRadius: 22, flexShrink: 0 }}
+                      disabled={!local.trim() || check?.busy}
+                      onClick={() => runCheck(p.provider)}
+                    >
+                      {check?.busy && check.provider === p.provider ? "Checking…" : "Check"}
+                    </button>
+                  </div>
+                  {check && check.provider === p.provider && !check.busy && (
+                    <div className={`note ${check.ok ? "" : "error"}`}>
+                      {check.ok && <CheckIcon />}
+                      <span>{check.message}</span>
+                    </div>
+                  )}
+                  {!p.configured && !local && (
+                    <div className="caption">
+                      Without a key the app runs in demo mode with sample answers.{" "}
+                      <a href={p.provider === "deepseek" ? "https://platform.deepseek.com/api_keys" : "https://console.anthropic.com/settings/keys"} target="_blank" rel="noreferrer">
+                        Get a {p.label} key
+                      </a>
+                    </div>
+                  )}
+                </div>
               )}
-              {on && !hasKey && <div className="caption" style={{ marginBottom: 16 }}>Without a key the app runs in demo mode with sample answers.</div>}
             </div>
           );
         })}

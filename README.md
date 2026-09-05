@@ -16,14 +16,14 @@ Without a key the app runs in **demo mode** with sample answers, so you can clic
 
 ## Choosing the AI
 
-Two providers are supported and you can switch any time from **Your plan → AI settings**:
+Two providers are supported. Tap the gear on the first screen, the **Demo** tag on Today, or **Your plan → AI settings** to pick one and paste your key. **Check** verifies the key without spending tokens.
 
 | Provider | Model | Key |
 |---|---|---|
 | DeepSeek (default) | `deepseek-chat` | `DEEPSEEK_API_KEY` |
 | Claude | `claude-opus-5` | `ANTHROPIC_API_KEY` |
 
-Keys can live in `.env` on the server, or be entered in the app, where they stay in the browser's local storage and are only ever sent to your own server. `AI_PROVIDER=anthropic` in `.env` changes the server default.
+Keys entered in the app stay in the browser's local storage and are only ever sent to your own server. Alternatively put them in `.env` on the server so every device shares them; a key entered in the app overrides the server's. `AI_PROVIDER=anthropic` in `.env` changes the server default.
 
 ## How it works
 

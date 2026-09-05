@@ -2,14 +2,16 @@ import { useState } from "react";
 import type { Plan } from "../../shared/types";
 import { ApiError, buildPlan } from "../lib/api";
 import { useSpeech } from "../lib/speech";
-import { MicIcon } from "../components/Icons";
+import { GearIcon, MicIcon } from "../components/Icons";
 
 interface Props {
   onPlan: (plan: Plan, demo: boolean) => void;
+  onSettings: () => void;
+  demo: boolean;
 }
 
 /** Onboarding: one freeform box instead of a form. */
-export function Goal({ onPlan }: Props) {
+export function Goal({ onPlan, onSettings, demo }: Props) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [question, setQuestion] = useState<string | null>(null);
@@ -41,8 +43,20 @@ export function Goal({ onPlan }: Props) {
 
   return (
     <div className="screen">
+      <div className="header">
+        <div className="stack gap-16">
+          {demo && (
+            <button className="tag" onClick={onSettings} style={{ alignSelf: "flex-start" }}>
+              Demo mode · add an API key
+            </button>
+          )}
+          <h1>Tell me about you, and what you're after.</h1>
+        </div>
+        <button className="icon-btn" aria-label="AI settings" onClick={onSettings}>
+          <GearIcon />
+        </button>
+      </div>
       <div className="stack gap-16">
-        <h1>Tell me about you, and what you're after.</h1>
         <p className="lede" style={{ margin: 0 }}>
           Age, height, weight, how you move, what you want. Say it however you like.
         </p>

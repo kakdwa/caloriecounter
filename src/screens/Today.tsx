@@ -12,10 +12,11 @@ interface Props {
   onLog: (text: string) => void;
   onProgress: () => void;
   onPlan: () => void;
+  onSettings: () => void;
   onRemove: (id: string) => void;
 }
 
-export function Today({ plan, entries, demo, onLog, onProgress, onPlan, onRemove }: Props) {
+export function Today({ plan, entries, demo, onLog, onProgress, onPlan, onSettings, onRemove }: Props) {
   const t = plan.targets;
   const sum = totals(entries);
   const left = t.calories - sum.kcal;
@@ -24,7 +25,14 @@ export function Today({ plan, entries, demo, onLog, onProgress, onPlan, onRemove
     <div className="screen">
       <div className="header">
         <div className="stack gap-8">
-          <div className="eyebrow">{longDate(localDate())}{demo && <span className="tag" style={{ marginLeft: 8 }}>Demo</span>}</div>
+          <div className="eyebrow">
+            {longDate(localDate())}
+            {demo && (
+              <button className="tag" style={{ marginLeft: 8 }} onClick={onSettings}>
+                Demo · add a key
+              </button>
+            )}
+          </div>
           <h1>{greeting()}</h1>
         </div>
         <div className="row gap-8">

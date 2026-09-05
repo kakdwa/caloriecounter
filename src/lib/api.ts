@@ -46,3 +46,13 @@ export async function getProviders(): Promise<{ default: Provider; providers: Pr
   if (!res.ok) throw new ApiError("Could not reach the server.");
   return res.json();
 }
+
+export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch("/api/check", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ provider, apiKey }),
+  }).catch(() => null);
+  if (!res) return { ok: false, message: "Could not reach the server." };
+  return res.json();
+}

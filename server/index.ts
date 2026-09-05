@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
-import { AiError, defaultProvider, providerStatuses, resolveClient } from "./ai.ts";
+import { AiError, checkKey, defaultProvider, providerStatuses, resolveClient } from "./ai.ts";
 import { computeTargets } from "./nutrition.ts";
 import type { FoodItem, LogResponse, Plan, PlanResponse, Profile, Provider } from "../shared/types.ts";
 
@@ -87,6 +87,14 @@ function fail(c: any, error: unknown) {
 app.get("/api/providers", (c) =>
   c.json({ default: defaultProvider(), providers: providerStatuses() }),
 );
+
+const CheckBody = z.object({ provider: z.enum(["deepseek", "anthropic"]), apiKey: z.string().min(1) });
+
+app.post("/api/check", async (c) => {
+  const body = CheckBody.safeParse(await c.req.json());
+  if (!body.success) return c.json({ ok: false, message: "Enter a key first." }, 400);
+  return c.json(await checkKey(body.data.provider, body.data.apiKey.trim()));
+});
 
 const PlanBody = z.object({
   text: z.string().min(1),

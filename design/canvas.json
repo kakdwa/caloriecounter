@@ -1,0 +1,15 @@
+{
+  "artboards": [
+    { "file": "Goal.dc.html",     "x": 0,    "y": 0, "w": 390, "h": 844, "title": "1 · Goal" },
+    { "file": "Plan.dc.html",     "x": 480,  "y": 0, "w": 390, "h": 844, "title": "2 · Plan" },
+    { "file": "Main.dc.html",     "x": 960,  "y": 0, "w": 390, "h": 844, "title": "3 · Today" },
+    { "file": "Log.dc.html",      "x": 1440, "y": 0, "w": 390, "h": 844, "title": "4 · Log" },
+    { "file": "Progress.dc.html", "x": 1920, "y": 0, "w": 390, "h": 844, "title": "5 · Progress" }
+  ],
+  "annotations": [
+    { "id": "onboarding", "x": 0, "y": -200, "w": 870, "text": "Onboarding, once. One freeform box replaces the usual twelve-field form: the model extracts age, height, weight, activity and goal, then writes the plan in plain language. Every number stays negotiable by typing a sentence." },
+    { "id": "daily", "x": 960, "y": -200, "w": 870, "text": "Daily loop. Today opens on the one number that matters (kcal left) with macros beneath. The input pill is always at the bottom: type or speak what you ate, confirm the parsed items, correct by talking back." },
+    { "id": "system", "x": 1920, "y": -200, "w": 390, "text": "System: Instrument Serif for headlines and editorial lines, Instrument Sans for UI and numbers. One accent, Sky #177BA8 (dark step #005783, tints #E4F3FC and #C2E4F8). All spacing on an 8 px grid; 24 px gutters, 56 px controls, 24/28 px radii." }
+  ],
+  "launch": { "view": "canvas" }
+}

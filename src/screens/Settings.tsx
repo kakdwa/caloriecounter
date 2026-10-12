@@ -1,113 +1,413 @@
-import { useEffect, useState } from "react";
-import type { Provider, ProviderStatus } from "../../shared/types";
+import { useRef, useState } from "react";
+import type { Provider, ProviderStatus, WeighIn } from "../../shared/types";
 import { checkKey, type Mode } from "../lib/api";
 import { PROVIDERS } from "../../shared/catalog";
 import { store, useStore } from "../lib/store";
+import type { Data } from "../lib/data";
+import { BackupSchema } from "../../shared/state-schema";
+import { readHealthMeasurements, type HealthImport } from "../lib/health";
+import { localDate, shortDate } from "../lib/format";
 import { Sheet } from "../components/Sheet";
-import { CheckIcon } from "../components/Icons";
-
 interface Props {
   providers: ProviderStatus[] | null;
   serverDefault: Provider;
   mode: Mode;
   onClose: () => void;
   onReset: () => void;
+  onDataChanged: () => void;
 }
-
-/** Pick which model answers, and give it a key. Keys live in this browser only. */
-export function Settings({ providers, serverDefault, mode, onClose, onReset }: Props) {
-  const { settings } = useStore();
-  const [confirm, setConfirm] = useState(false);
-  const [check, setCheck] = useState<{ provider: Provider; busy: boolean; ok?: boolean; message?: string } | null>(null);
-
-  const active = settings.provider ?? serverDefault;
-
-  useEffect(() => setCheck(null), [active]);
-
-  async function runCheck(provider: Provider) {
-    const key = settings.apiKeys[provider]?.trim();
-    if (!key) return;
-    setCheck({ provider, busy: true });
-    const r = await checkKey(provider, key);
-    setCheck({ provider, busy: false, ...r });
+export function Settings({
+  providers,
+  serverDefault,
+  mode,
+  onClose,
+  onReset,
+  onDataChanged,
+}: Props) {
+  const state = useStore();
+  const active = state.settings.provider ?? serverDefault;
+  const [provider, setProvider] = useState<Provider>(active),
+    [key, setKey] = useState(state.settings.apiKeys[active] ?? ""),
+    [busy, setBusy] = useState(false),
+    [message, setMessage] = useState(""),
+    [error, setError] = useState(""),
+    [confirm, setConfirm] = useState(false),
+    [weights, setWeights] = useState<HealthImport | null>(null),
+    [canUndo, setCanUndo] = useState(false),
+    [backup, setBackup] = useState<Data | null>(null);
+  const healthFile = useRef<HTMLInputElement>(null),
+    backupFile = useRef<HTMLInputElement>(null);
+  function choose(p: Provider) {
+    setProvider(p);
+    setKey(state.settings.apiKeys[p] ?? "");
+    setMessage("");
+    setError("");
   }
-
+  async function saveKey() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      if (key.trim()) {
+        const r = await checkKey(provider, key.trim());
+        if (!r.ok) throw new Error(r.message);
+      }
+      store.setSettings({
+        provider,
+        apiKeys: { ...state.settings.apiKeys, [provider]: key.trim() },
+      });
+      setMessage(
+        key.trim()
+          ? `${PROVIDERS[provider].label} is connected. You're ready.`
+          : "Key removed from this browser.",
+      );
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not connect. Try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  function download() {
+    const { settings: _, ...data } = state;
+    const blob = new Blob(
+      [
+        JSON.stringify(
+          { version: 2, exportedAt: new Date().toISOString(), data },
+          null,
+          2,
+        ),
+      ],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob),
+      a = document.createElement("a");
+    a.href = url;
+    a.download = `calorie-backup-${localDate()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function importFile(file: File | undefined, kind: "health" | "backup") {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      if (kind === "health") {
+        if (state.plan?.demo)
+          throw new Error(
+            "Create your personal plan before importing real Apple Health measurements. Sample and personal data stay separate.",
+          );
+        setWeights(await readHealthMeasurements(file));
+        setBackup(null);
+      } else {
+        if (file.size > 20 * 1024 * 1024)
+          throw new Error("Choose a backup smaller than 20 MB.");
+        const parsed = BackupSchema.safeParse(JSON.parse(await file.text()));
+        if (!parsed.success)
+          throw new Error(
+            "This file is not a valid Calorie backup. Nothing was changed.",
+          );
+        setBackup(parsed.data.data);
+        setWeights(null);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not read this file.");
+    } finally {
+      setBusy(false);
+      if (healthFile.current) healthFile.current.value = "";
+      if (backupFile.current) backupFile.current.value = "";
+    }
+  }
+  function saveImport() {
+    try {
+      if (weights) {
+        const merged = new Map(state.weighIns.map((w) => [w.date, w]));
+        for (const w of weights.weighIns) merged.set(w.date, w);
+        const metrics = new Map(state.bodyMetrics.map((m) => [m.date, m]));
+        for (const m of weights.bodyMetrics)
+          metrics.set(m.date, { ...metrics.get(m.date), ...m });
+        store.restore({
+          ...state,
+          bodyMetrics: [...metrics.values()].sort((a, b) =>
+            a.date.localeCompare(b.date),
+          ),
+          weighIns: [...merged.values()].sort((a, b) =>
+            a.date.localeCompare(b.date),
+          ),
+        });
+        setMessage(
+          `${weights.weighIns.length} weight days and ${weights.bodyMetrics.length} body-composition days imported.`,
+        );
+        setWeights(null);
+      } else if (backup) {
+        store.restore(backup);
+        setBackup(null);
+        setMessage("Your backup has been restored.");
+      }
+      setCanUndo(true);
+      onDataChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save.");
+    }
+  }
   return (
     <Sheet onClose={onClose}>
-      <div className="stack gap-8">
-        <h2>Which AI should I use?</h2>
-        <div className="caption">
-          {mode === "direct"
-            ? "Paste a key from the provider's site. It stays in this browser and goes straight to that provider, nowhere else."
-            : "Paste a key from the provider's site. It stays in this browser and is only sent to your own server."}
+      <div className="section-top">
+        <div>
+          <span className="small-label">MAKE IT YOURS</span>
+          <h2>Settings & connections</h2>
         </div>
+        <button
+          className="close-button"
+          aria-label="Close settings"
+          onClick={onClose}
+        >
+          ×
+        </button>
       </div>
-      <div className="stack mt-16">
-        {(providers ?? []).map((p) => {
-          const on = active === p.provider;
-          const local = settings.apiKeys[p.provider] ?? "";
-          const status = p.configured ? "key on server" : local ? "key on this device" : "no key yet";
-          return (
-            <div className="stack" key={p.provider}>
-              <button className="option" onClick={() => store.setSettings({ provider: p.provider })}>
-                <span className={`radio ${on ? "on" : ""}`} />
-                <span style={{ flexGrow: 1, textAlign: "left" }}>
-                  <div style={{ fontSize: 16, fontWeight: 500 }}>{p.label}</div>
-                  <div className="caption">{p.model} · {status}</div>
-                </span>
-              </button>
-              {on && (
-                <div className="stack gap-8" style={{ marginBottom: 16 }}>
-                  <div className="row gap-8">
-                    <input
-                      className="field"
-                      type="password"
-                      placeholder={p.configured ? "Server key in use; paste one to override" : `${p.label} API key`}
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={local}
-                      onChange={(e) => {
-                        setCheck(null);
-                        store.setSettings({ apiKeys: { ...settings.apiKeys, [p.provider]: e.target.value } });
-                      }}
-                    />
-                    <button
-                      className="btn"
-                      style={{ width: "auto", height: 44, padding: "0 16px", borderRadius: 22, flexShrink: 0 }}
-                      disabled={!local.trim() || check?.busy}
-                      onClick={() => runCheck(p.provider)}
-                    >
-                      {check?.busy && check.provider === p.provider ? "Checking…" : "Check"}
-                    </button>
+      <section className="settings-section">
+        <h3>Your AI</h3>
+        <p className="caption">
+          DeepSeek understands your meals, photos and plans. Your key is saved
+          on this device.
+        </p>
+        <div className="provider-options">
+          {(["deepseek", "anthropic"] as Provider[]).map((p) => (
+            <button
+              disabled={busy}
+              className={provider === p ? "selected" : ""}
+              aria-pressed={provider === p}
+              key={p}
+              onClick={() => choose(p)}
+            >
+              {PROVIDERS[p].label}
+              {p === "deepseek" && <span>Recommended</span>}
+            </button>
+          ))}
+        </div>
+        <label className="small-label" htmlFor="api-key">
+          {PROVIDERS[provider].label} API KEY
+        </label>
+        <input
+          id="api-key"
+          className="field"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={key}
+          disabled={busy}
+          placeholder={
+            providers?.find((p) => p.provider === provider)?.configured
+              ? "Server key available"
+              : "Paste your API key"
+          }
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <div className="section-top mt-16">
+          <a
+            className="text-link"
+            href={PROVIDERS[provider].keysUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Get a key ↗
+          </a>
+          <button
+            className="small-btn"
+            disabled={busy}
+            onClick={() => void saveKey()}
+          >
+            {busy ? "Working…" : "Save connection"}
+          </button>
+        </div>
+        <p className="caption">
+          {mode === "direct"
+            ? "Messages, attached photos and relevant history go directly to your chosen AI provider."
+            : "Messages, photos and relevant history pass through this app's server to your chosen AI provider."}{" "}
+          Keys are stored in browser storage, not included in backups. Voice
+          uses your browser's speech service.
+        </p>
+      </section>
+      <section className="settings-section">
+        <div className="section-top">
+          <h3>Apple Health</h3>
+          <span className="tag">Body measurements</span>
+        </div>
+        <p className="caption">
+          In Health, tap your profile → Export All Health Data. Unzip the export
+          in Files, then select export.xml. Only weight, BMI, body fat and lean
+          body mass records are read, on this device.
+        </p>
+        <button
+          className="secondary full"
+          disabled={busy}
+          onClick={() => healthFile.current?.click()}
+        >
+          Import health measurements ↗
+        </button>
+        <input
+          ref={healthFile}
+          hidden
+          type="file"
+          accept=".xml,text/xml,application/xml"
+          onChange={(e) => void importFile(e.target.files?.[0], "health")}
+        />
+        <p className="caption">
+          Automatic syncing needs a native iPhone app. Imported measurements can
+          become part of the context sent to your AI when you ask for coaching.
+        </p>
+      </section>
+      <section className="settings-section">
+        <h3>Your data, in your hands</h3>
+        <p className="caption">
+          Saved in this browser, without an account or automatic cloud backup.
+        </p>
+        <div className="row gap-8">
+          <button
+            className="secondary"
+            disabled={Boolean(store.storageError())}
+            onClick={download}
+          >
+            Export backup
+          </button>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => backupFile.current?.click()}
+          >
+            Restore backup
+          </button>
+        </div>
+        <input
+          hidden
+          ref={backupFile}
+          type="file"
+          accept="application/json,.json"
+          onChange={(e) => void importFile(e.target.files?.[0], "backup")}
+        />
+      </section>
+      {(weights || backup) && (
+        <div className="import-preview">
+          <span className="small-label">REVIEW IMPORT</span>
+          {weights ? (
+            <>
+              <h3>Your health measurements</h3>
+              <p className="caption">
+                {weights.weighIns.length} weight days ·{" "}
+                {weights.bodyMetrics.length} body-composition days. The latest
+                value for each measurement on each day is used. Imported values
+                replace matching values for that date; other measurements stay
+                unchanged.
+              </p>
+              <div className="import-weights">
+                {weights.weighIns.slice(-5).map((w) => (
+                  <div className="section-top" key={w.date}>
+                    <span>{shortDate(w.date)}</span>
+                    <strong>{w.weightKg} kg</strong>
                   </div>
-                  {check && check.provider === p.provider && !check.busy && (
-                    <div className={`note ${check.ok ? "" : "error"}`}>
-                      {check.ok && <CheckIcon />}
-                      <span>{check.message}</span>
-                    </div>
-                  )}
-                  {!p.configured && !local && (
-                    <div className="caption">
-                      Without a key the app runs in demo mode with sample answers.{" "}
-                      <a href={PROVIDERS[p.provider].keysUrl} target="_blank" rel="noreferrer">
-                        Get a {p.label} key
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {providers && providers.length === 0 && <div className="caption">Could not reach the server.</div>}
-      </div>
-      <div className="row between mt-24">
+                ))}
+                {weights.bodyMetrics.slice(-5).map((m) => (
+                  <div className="import-body" key={m.date}>
+                    <span>{shortDate(m.date)}</span>
+                    <span>
+                      {m.bmi != null && `BMI ${m.bmi} · `}
+                      {m.bodyFatPercent != null &&
+                        `${m.bodyFatPercent}% fat · `}
+                      {m.leanBodyMassKg != null &&
+                        `${m.leanBodyMassKg} kg lean mass`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <h3>Replace this device's data?</h3>
+              <p className="caption">
+                {backup!.entries.length} meals, {backup!.weighIns.length}{" "}
+                weigh-ins, and {backup!.plan ? "a saved plan" : "no plan"}. This
+                replaces existing records. API keys are preserved.
+              </p>
+            </>
+          )}
+          <div className="row gap-8">
+            <button className="btn" onClick={saveImport}>
+              Confirm import
+            </button>
+            <button
+              className="secondary"
+              onClick={() => {
+                setWeights(null);
+                setBackup(null);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {canUndo && (
+        <button
+          className="text-link"
+          onClick={() => {
+            try {
+              store.undo();
+              setCanUndo(false);
+              setMessage("Import undone.");
+              onDataChanged();
+            } catch (e) {
+              setError(String(e));
+            }
+          }}
+        >
+          Undo last import
+        </button>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p className="connection-success" role="status">
+          {message}
+        </p>
+      )}
+      <div className="settings-bottom">
         {confirm ? (
-          <button className="link" style={{ color: "var(--danger)" }} onClick={onReset}>Yes, erase everything</button>
+          <>
+            <p>
+              Erase this browser's plan, meals and progress? Your AI key will
+              stay connected.
+            </p>
+            <div className="row gap-16">
+              <button
+                className="text-link danger"
+                onClick={() => {
+                  try {
+                    onReset();
+                  } catch (e) {
+                    setError(String(e));
+                  }
+                }}
+              >
+                Erase my data
+              </button>
+              <button className="text-link" onClick={() => setConfirm(false)}>
+                Cancel
+              </button>
+            </div>
+          </>
         ) : (
-          <button className="link" style={{ color: "var(--ink-3)" }} onClick={() => setConfirm(true)}>Start over</button>
+          <button className="text-link muted" onClick={() => setConfirm(true)}>
+            Start over
+          </button>
         )}
-        <button className="link" onClick={onClose}>Done</button>
+        <button className="text-link" onClick={onClose}>
+          Done
+        </button>
       </div>
     </Sheet>
   );

@@ -2,7 +2,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import type { Provider } from "./types";
+import type { ImageInput, Provider } from "./types";
 import { PROVIDERS } from "./catalog";
 
 export { PROVIDERS };
@@ -15,6 +15,7 @@ export interface JsonRequest<T> {
   schema: z.ZodType<T>;
   effort: Effort;
   maxTokens?: number;
+  images?: ImageInput[];
 }
 
 export interface AiClient {
@@ -41,9 +42,9 @@ export function makeClient(provider: Provider, apiKey: string | undefined): AiCl
 export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok: boolean; message: string }> {
   try {
     if (provider === "anthropic") {
-      await new Anthropic({ apiKey, dangerouslyAllowBrowser: inBrowser }).models.list({ limit: 1 });
+      await new Anthropic({ apiKey, dangerouslyAllowBrowser: inBrowser, timeout: 15000, maxRetries: 0 }).models.list({ limit: 1 });
     } else {
-      const res = await fetch("https://api.deepseek.com/models", { headers: { authorization: `Bearer ${apiKey}` } });
+      const res = await fetch("https://api.deepseek.com/models", { signal: AbortSignal.timeout(15000), headers: { authorization: `Bearer ${apiKey}` } });
       if (res.status === 401 || res.status === 403) return { ok: false, message: "DeepSeek rejected this key." };
       if (!res.ok) return { ok: false, message: `DeepSeek answered ${res.status}. Try again in a moment.` };
     }
@@ -58,7 +59,7 @@ export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok
 // ---------------------------------------------------------------- Anthropic
 
 function anthropicClient(apiKey: string): AiClient {
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: inBrowser });
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: inBrowser, timeout: 60000, maxRetries: 1 });
   return {
     provider: "anthropic",
     demo: false,
@@ -68,7 +69,10 @@ function anthropicClient(apiKey: string): AiClient {
           model: PROVIDERS.anthropic.model,
           max_tokens: req.maxTokens ?? 4000,
           system: req.system,
-          messages: [{ role: "user", content: req.user }],
+          messages: [{ role: "user", content: [
+            ...(req.images ?? []).map(im => ({ type: "image" as const, source: { type: "base64" as const, media_type: im.mediaType, data: im.data } })),
+            { type: "text" as const, text: req.user },
+          ] }],
           output_config: { format: zodOutputFormat(req.schema), effort: req.effort },
         });
         if (response.stop_reason === "refusal") throw new AiError("The model declined this request.");
@@ -99,14 +103,19 @@ function deepseekClient(apiKey: string): AiClient {
         res = await fetch("https://api.deepseek.com/chat/completions", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(60000),
           body: JSON.stringify({
             model: PROVIDERS.deepseek.model,
             messages: [
               { role: "system", content: system },
-              { role: "user", content: req.user },
+              { role: "user", content: req.images?.length ? [
+                { type: "text", text: req.user },
+                ...req.images.map(im => ({ type: "image_url", image_url: { url: `data:${im.mediaType};base64,${im.data}` } })),
+              ] : req.user },
             ],
             response_format: { type: "json_object" },
-            temperature: req.effort === "low" ? 0.2 : 0.5,
+            reasoning_effort: "none",
+            temperature: 0.2,
             max_tokens: req.maxTokens ?? 4000,
           }),
         });

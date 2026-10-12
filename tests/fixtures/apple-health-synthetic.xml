@@ -1,0 +1,9 @@
+<?xml version="1.0"?><HealthData locale="en_US">
+<Record type="HKQuantityTypeIdentifierBodyMass" unit="kg" startDate="2026-10-10 08:00:00 +0800" value="82.4"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" unit="kg" startDate="2026-10-12 08:00:00 +0800" value="82.1"/>
+<Record type="HKQuantityTypeIdentifierBodyMassIndex" unit="count" startDate="2026-10-12 08:00:00 +0800" value="25.9"/>
+<Record type="HKQuantityTypeIdentifierBodyFatPercentage" unit="%" startDate="2026-10-12 08:00:00 +0800" value="0.235"/>
+<Record type="HKQuantityTypeIdentifierLeanBodyMass" unit="kg" startDate="2026-10-12 08:00:00 +0800" value="62.8"/>
+<Record type="HKQuantityTypeIdentifierBodyFatPercentage" unit="%" startDate="2026-10-11 08:00:00 +0800" value="0.236"/>
+<Record type="HKQuantityTypeIdentifierHeartRate" unit="count/min" startDate="2026-10-12 08:00:00 +0800" value="70"/>
+</HealthData>

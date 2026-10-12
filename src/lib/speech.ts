@@ -1,57 +1,87 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-
 type Recognition = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
   start(): void;
   stop(): void;
-  onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null;
+  onresult:
+    | ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void)
+    | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
 };
-
-function getCtor(): (new () => Recognition) | null {
-  const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-}
-
-/** Browser speech-to-text. `onText` receives the running transcript (interim included). */
+const ctor = () => {
+  const w = window as unknown as {
+    SpeechRecognition?: new () => Recognition;
+    webkitSpeechRecognition?: new () => Recognition;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition;
+};
 export function useSpeech(onText: (text: string, final: boolean) => void) {
-  const supported = typeof window !== "undefined" && getCtor() !== null;
-  const [listening, setListening] = useState(false);
-  const rec = useRef<Recognition | null>(null);
-  const cb = useRef(onText);
+  const [listening, setListening] = useState(false),
+    [error, setError] = useState("");
+  const rec = useRef<Recognition | null>(null),
+    cb = useRef(onText);
   cb.current = onText;
-
   const stop = useCallback(() => {
     rec.current?.stop();
+    setListening(false);
   }, []);
-
   const start = useCallback(() => {
-    const Ctor = getCtor();
-    if (!Ctor) return;
-    const r = new Ctor();
-    r.lang = navigator.language || "en-US";
+    const C = ctor();
+    if (!C) {
+      setError(
+        "Voice is not available in this browser. You can type or use your keyboard's dictation.",
+      );
+      return;
+    }
+    setError("");
+    const r = new C();
+    r.lang = navigator.language;
     r.continuous = true;
     r.interimResults = true;
-    r.onresult = (e) => {
-      let text = "";
-      let final = true;
-      for (let i = 0; i < e.results.length; i++) {
-        text += e.results[i][0].transcript;
-        if (!e.results[i].isFinal) final = false;
-      }
-      cb.current(text.trim(), final);
-    };
+    r.onresult = (e) =>
+      cb.current(
+        Array.from(e.results)
+          .map((v) => v[0].transcript)
+          .join(" "),
+        false,
+      );
     r.onend = () => setListening(false);
-    r.onerror = () => setListening(false);
+    r.onerror = (e) => {
+      setListening(false);
+      setError(
+        e.error === "not-allowed"
+          ? "Microphone access was declined. Allow it in your browser settings, or type below."
+          : "I could not hear that. Try voice again or type your message.",
+      );
+    };
     rec.current = r;
-    r.start();
-    setListening(true);
+    try {
+      r.start();
+      setListening(true);
+    } catch {
+      setError("Microphone could not start. Please try again.");
+    }
   }, []);
-
-  useEffect(() => () => rec.current?.stop(), []);
-
-  return { supported, listening, start, stop, toggle: listening ? stop : start };
+  useEffect(
+    () => () => {
+      if (rec.current) {
+        rec.current.onresult = null;
+        rec.current.onend = null;
+        rec.current.onerror = null;
+        rec.current.stop();
+      }
+    },
+    [],
+  );
+  return {
+    supported: typeof window !== "undefined" && !!ctor(),
+    listening,
+    error,
+    start,
+    stop,
+    toggle: listening ? stop : start,
+  };
 }

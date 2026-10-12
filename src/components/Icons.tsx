@@ -1,4 +1,12 @@
-const base = { fill: "none", stroke: "currentColor", strokeWidth: 1.75, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+const base = {
+  "aria-hidden": true as const,
+  focusable: false,
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.75,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
 
 export function MicIcon() {
   return (
@@ -13,7 +21,10 @@ export function MicIcon() {
 export function ChartIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" {...base}>
-      <path d="M4 19V11" /><path d="M10 19V5" /><path d="M16 19v-8" /><path d="M22 19H2" />
+      <path d="M4 19V11" />
+      <path d="M10 19V5" />
+      <path d="M16 19v-8" />
+      <path d="M22 19H2" />
     </svg>
   );
 }
@@ -29,14 +40,22 @@ export function BackIcon() {
 export function TargetIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" {...base}>
-      <circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" />
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }
 
 export function CheckIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" {...base} strokeWidth={2.25} style={{ color: "var(--accent)" }}>
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      {...base}
+      strokeWidth={2.25}
+      style={{ color: "var(--accent)" }}
+    >
       <path d="M5 12l5 5 9-10" />
     </svg>
   );
@@ -45,15 +64,25 @@ export function CheckIcon() {
 export function SendIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" {...base}>
-      <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
+      <path d="M5 12h14" />
+      <path d="M13 6l6 6-6 6" />
     </svg>
   );
 }
 
 export function ArrowIcon() {
   return (
-    <svg width="80" height="12" viewBox="0 0 80 12" fill="none" stroke="var(--ink-3)" strokeWidth="1.5" strokeLinecap="round">
-      <path d="M2 6h74" /><path d="M72 2l4 4-4 4" />
+    <svg
+      width="80"
+      height="12"
+      viewBox="0 0 80 12"
+      fill="none"
+      stroke="var(--ink-3)"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    >
+      <path d="M2 6h74" />
+      <path d="M72 2l4 4-4 4" />
     </svg>
   );
 }

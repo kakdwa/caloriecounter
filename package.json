@@ -9,7 +9,8 @@
     "dev:web": "vite",
     "build": "tsc --noEmit && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",

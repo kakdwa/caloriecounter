@@ -62,8 +62,8 @@ export function computeTargets(p: Profile, today = new Date()): Targets {
   const proteinPerLb = p.goal === "lose" ? 0.95 : p.goal === "gain" ? 0.9 : 0.8;
   const proteinG = round(Math.min(lb * proteinPerLb, 220), 5);
   const fatPerLb = p.carbPreference === "higher" ? 0.3 : p.carbPreference === "lower" ? 0.45 : 0.35;
-  const fatG = round(Math.max(lb * fatPerLb, (calories * 0.2) / 9), 5);
-  const carbsG = round(Math.max((calories - proteinG * 4 - fatG * 9) / 4, 50), 5);
+  const fatG = round(Math.min(Math.max(lb * fatPerLb, (calories * 0.2) / 9), Math.max(0, (calories - proteinG * 4 - 200) / 9)), 5);
+  const carbsG = Math.round(Math.max((calories - proteinG * 4 - fatG * 9) / 4, 0));
 
   let projectedDate: string | null = null;
   if (p.goalWeightKg != null && weeklyRateKg !== 0) {

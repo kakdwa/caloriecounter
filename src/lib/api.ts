@@ -20,7 +20,7 @@ let modePromise: Promise<ProvidersInfo> | null = null;
 export function getProviders(): Promise<ProvidersInfo> {
   modePromise ??= (async () => {
     try {
-      const res = await fetch("api/providers", { headers: { accept: "application/json" } });
+      const res = await fetch("api/providers", { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
       if (res.ok && (res.headers.get("content-type") ?? "").includes("json")) {
         const data = await res.json();
         return { mode: "server", default: data.default, providers: data.providers } as ProvidersInfo;
@@ -46,7 +46,7 @@ function chosen(info: ProvidersInfo) {
 async function post<T>(path: string, body: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(100000), body: JSON.stringify(body) });
   } catch {
     throw new ApiError("Could not reach the server. Is it running?");
   }
@@ -96,4 +96,19 @@ export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok
   }).catch(() => null);
   if (!res) return { ok: false, message: "Could not reach the server." };
   return res.json();
+}
+
+
+export async function sendToCoach(text: string, images: import("../../shared/types").ImageInput[], context: import("../../shared/types").CoachContext): Promise<import("../../shared/types").CoachUpdate> {
+  const info = await getProviders();
+  const c = chosen(info);
+  if (info.mode === "server") return post("api/coach", { text, images, context, ...c });
+  try {
+    const [providers, coach] = await Promise.all([import("../../shared/providers"), import("../../shared/coach")]);
+    return await coach.runCoach(providers.makeClient(c.provider, c.apiKey), { text, images }, context);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "I could not finish that. Please try again.";
+    if (/dynamically imported|module script|Importing a module/i.test(message)) throw new ApiError("The app has been updated. Copy any unsent message, then reload this page. Your saved records are safe.");
+    throw new ApiError(message);
+  }
 }

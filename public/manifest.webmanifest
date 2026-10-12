@@ -1,11 +1,11 @@
 {
-  "name": "Calorie Tracker",
-  "short_name": "Calories",
+  "name": "Calorie — a little, every day",
+  "short_name": "Calorie",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#FAFAF8",
-  "theme_color": "#FAFAF8",
+  "background_color": "#F8FAFB",
+  "theme_color": "#F8FAFB",
   "icons": [
     { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml" },
     { "src": "./apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }

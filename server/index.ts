@@ -2,6 +2,20 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
+import { bodyLimit } from "hono/body-limit";
+import {
+  runCoach,
+  ImageSchema,
+  date,
+  BodyMetricsSchema,
+} from "../shared/coach";
+import {
+  PlanSchema,
+  EntrySchema,
+  WeightSchema,
+  MemorySchema,
+} from "../shared/state-schema";
+import type { CoachContext } from "../shared/types";
 import { AiError, checkKey, makeClient } from "../shared/providers";
 import { PROVIDERS } from "../shared/catalog";
 import { runLog, runPlan } from "../shared/pipeline";
@@ -14,6 +28,14 @@ try {
 }
 
 const app = new Hono();
+app.use(
+  "/api/*",
+  bodyLimit({
+    maxSize: 7 * 1024 * 1024,
+    onError: (c) =>
+      c.json({ error: "That message is too large. Try a smaller photo." }, 413),
+  }),
+);
 
 function providerStatuses(): ProviderStatus[] {
   return (Object.keys(PROVIDERS) as Provider[]).map((provider) => ({
@@ -34,13 +56,18 @@ function defaultProvider(): Provider {
 
 /** A key sent by the app wins over the server's environment. */
 function resolve(provider: Provider | undefined, apiKey: string | undefined) {
-  const p: Provider = provider && provider in PROVIDERS ? provider : defaultProvider();
+  const p: Provider =
+    provider && provider in PROVIDERS ? provider : defaultProvider();
   return makeClient(p, apiKey?.trim() || process.env[PROVIDERS[p].env]);
 }
 
 function fail(c: any, error: unknown) {
-  if (error instanceof AiError) return c.json({ error: error.message }, error.status as 400);
-  console.error(error);
+  if (error instanceof AiError)
+    return c.json({ error: error.message }, error.status as 400);
+  console.error(
+    "AI request failed:",
+    error instanceof Error ? error.name : "unknown",
+  );
   return c.json({ error: "Something went wrong talking to the model." }, 502);
 }
 
@@ -49,22 +76,41 @@ const ClientFields = {
   apiKey: z.string().optional(),
 };
 
-app.get("/api/providers", (c) => c.json({ mode: "server", default: defaultProvider(), providers: providerStatuses() }));
+app.get("/api/providers", (c) =>
+  c.json({
+    mode: "server",
+    default: defaultProvider(),
+    providers: providerStatuses(),
+  }),
+);
 
-const CheckBody = z.object({ provider: z.enum(["deepseek", "anthropic"]), apiKey: z.string().min(1) });
+const CheckBody = z.object({
+  provider: z.enum(["deepseek", "anthropic"]),
+  apiKey: z.string().min(1),
+});
 app.post("/api/check", async (c) => {
   const body = CheckBody.safeParse(await c.req.json());
-  if (!body.success) return c.json({ ok: false, message: "Enter a key first." }, 400);
+  if (!body.success)
+    return c.json({ ok: false, message: "Enter a key first." }, 400);
   return c.json(await checkKey(body.data.provider, body.data.apiKey.trim()));
 });
 
-const PlanBody = z.object({ text: z.string().min(1), current: z.any().optional(), ...ClientFields });
+const PlanBody = z.object({
+  text: z.string().min(1),
+  current: z.any().optional(),
+  ...ClientFields,
+});
 app.post("/api/plan", async (c) => {
   const body = PlanBody.safeParse(await c.req.json());
-  if (!body.success) return c.json({ error: "Tell me a little about yourself first." }, 400);
+  if (!body.success)
+    return c.json({ error: "Tell me a little about yourself first." }, 400);
   const ai = resolve(body.data.provider, body.data.apiKey);
   try {
-    const res = await runPlan(ai, body.data.text, body.data.current as Plan | undefined);
+    const res = await runPlan(
+      ai,
+      body.data.text,
+      body.data.current as Plan | undefined,
+    );
     return c.json({ ...res, demo: ai.demo });
   } catch (error) {
     return fail(c, error);
@@ -87,8 +133,61 @@ app.post("/api/log", async (c) => {
   if (!body.success) return c.json({ error: "Tell me what you ate." }, 400);
   const ai = resolve(body.data.provider, body.data.apiKey);
   try {
-    const res = await runLog(ai, body.data.text, body.data.context, body.data.previous as FoodItem[] | undefined);
+    const res = await runLog(
+      ai,
+      body.data.text,
+      body.data.context,
+      body.data.previous as FoodItem[] | undefined,
+    );
     return c.json({ ...res, demo: ai.demo });
+  } catch (error) {
+    return fail(c, error);
+  }
+});
+
+const CoachBody = z.object({
+  text: z.string().max(12000),
+  images: z.array(ImageSchema).max(2),
+  context: z.object({
+    bodyMetrics: z.array(BodyMetricsSchema).max(90).optional(),
+    today: date,
+    plan: PlanSchema.nullable(),
+    entries: z.array(EntrySchema).max(60),
+    weighIns: z.array(WeightSchema).max(60),
+    memory: MemorySchema,
+    completedDays: z.array(date).max(90).optional(),
+    history: z
+      .array(
+        z.object({
+          user: z.string().max(12000),
+          assistant: z.string().max(24000),
+        }),
+      )
+      .max(8),
+    pending: z.any().nullable(),
+    selectedEntryId: z.string().nullable(),
+  }),
+  ...ClientFields,
+});
+app.post("/api/coach", async (c) => {
+  const body = CoachBody.safeParse(await c.req.json().catch(() => null));
+  if (!body.success)
+    return c.json(
+      {
+        error:
+          "I could not read that message. Try again with a little less detail.",
+      },
+      400,
+    );
+  try {
+    const b = body.data;
+    return c.json(
+      await runCoach(
+        resolve(b.provider, b.apiKey),
+        { text: b.text, images: b.images },
+        b.context as CoachContext,
+      ),
+    );
   } catch (error) {
     return fail(c, error);
   }
@@ -101,7 +200,9 @@ if (process.env.NODE_ENV === "production") {
 
 const port = Number(process.env.API_PORT ?? 8787);
 serve({ fetch: app.fetch, port }, () => {
-  const configured = providerStatuses().filter((s) => s.configured).map((s) => s.label);
+  const configured = providerStatuses()
+    .filter((s) => s.configured)
+    .map((s) => s.label);
   console.log(`API on http://localhost:${port}`);
   console.log(
     configured.length

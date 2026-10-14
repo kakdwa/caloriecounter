@@ -76,6 +76,7 @@ export function BodyTrends({
           Apple Health ↗
         </button>
       </div>
+      {readings.length > 1 && <div className="measurement-change" key={metric}><strong>{last!.value - readings[0].value > 0 ? "+" : ""}{(last!.value - readings[0].value).toFixed(1)} {metric === "bodyFatPercent" ? "percentage points" : units(metric)}</strong><span> since {shortDate(readings[0].date)} · {readings.length} readings</span></div>}
       <div className="measurement-tabs" aria-label="Measurement to chart">
         {(Object.keys(names) as HealthMetric[]).map((m) => (
           <button
@@ -90,6 +91,7 @@ export function BodyTrends({
       </div>
       {readings.length ? (
         <svg
+          key={metric}
           className="weight-chart"
           viewBox="0 0 600 200"
           role="img"
@@ -107,6 +109,8 @@ export function BodyTrends({
             {lo.toFixed(1)}
           </text>
           <path
+            className="trend-line"
+            pathLength="1"
             d={points.map((p, i) => `${i ? "L" : "M"}${p.x},${p.y}`).join(" ")}
             stroke="var(--accent)"
             strokeWidth="2"

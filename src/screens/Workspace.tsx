@@ -1,3 +1,6 @@
+import { ProgressSummary } from "../components/ProgressSummary";
+import { AnimatedNumber } from "../components/AnimatedNumber";
+import { NutritionEvidence } from "../components/NutritionEvidence";
 import { BodyTrends } from "../components/BodyTrends";
 import { useState } from "react";
 import type { State } from "../lib/store";
@@ -16,20 +19,20 @@ export function Welcome({
 }) {
   return (
     <div className="welcome">
-      <div className="welcome-orbit" aria-hidden="true">
-        <div />
-        <span>✧</span>
+      <div className="welcome-visual" aria-hidden="true">
+        <div className="welcome-message"><span>↗</span> A plan that works with my life.</div>
+        <div className="welcome-output"><div><span>YOUR EVERYDAY PLAN</span><strong>Less effort.<br />More clarity.</strong></div><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="30"/><circle cx="40" cy="40" r="30"/></svg><div className="mini-macros"><i/><i/><i/></div></div>
       </div>
-      <span className="eyebrow blue">A PLAN FOR REAL LIFE</span>
+      <span className="eyebrow blue">YOUR PERSONAL NUTRITION COACH</span>
       <h1>
-        Feel better.
+        Make room for
         <br />
-        <em>Find your rhythm.</em>
+        <em>feeling better.</em>
       </h1>
       <p className="lede">
-        Your goals, your food, your everyday life.
+        A plan built around you. Food tracking that keeps up.
         <br />
-        One place to make it all a little easier.
+        Just tell us what’s on your mind.
       </p>
       <div className="welcome-steps">
         <div>
@@ -89,7 +92,7 @@ function Macro({
     <div className="macro">
       <span className="small-label">{name}</span>
       <div>
-        <strong>{n(value)}</strong>
+        <strong><AnimatedNumber value={value} /></strong>
         <span> / {n(target)} g</span>
       </div>
       <div className="meter">
@@ -105,17 +108,19 @@ function Macro({
 function Meals({
   entries,
   select,
+  savedIds,
 }: {
+  savedIds: string[];
   entries: Entry[];
   select: (e: Entry) => void;
 }) {
   return (
     <div className="meals">
       {entries.length ? (
-        entries.map((e, i) => (
-          <button className="meal-row" key={e.id} onClick={() => select(e)}>
+        entries.map((e) => (
+          <div className={`meal-card ${savedIds.includes(e.id) ? "just-saved" : ""}`} key={e.id}><button className="meal-row" onClick={() => select(e)}>
             <span className="meal-symbol">
-              {String(i + 1).padStart(2, "0")}
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 3v6a3 3 0 0 0 6 0V3M7 3v18M18 3c-3 4-3 8 1 9V3m0 9v9"/></svg>
             </span>
             <span className="meal-copy">
               <strong>{e.text}</strong>
@@ -129,12 +134,15 @@ function Meals({
               <small>kcal ↗</small>
             </span>
           </button>
+          <div className="meal-detail-line"><span>{n(itemTotals(e.items).proteinG)}g protein</span><span>{n(itemTotals(e.items).carbsG)}g carbs</span><span>{n(itemTotals(e.items).fatG)}g fat</span></div>
+          <details className="meal-details"><summary>Nutrition details <span>＋</span></summary>{e.items.map((item, j) => <div key={j} className="saved-food"><strong>{item.name}</strong><p className="caption">{item.detail} · {n(item.kcal)} kcal</p><NutritionEvidence item={item}/></div>)}</details>
+          </div>
         ))
       ) : (
         <div className="empty-note">
           <span>◌</span>
           <p>
-            A fresh page.<small>Tell me about your first meal below.</small>
+            No meals yet.<small>Type it, say it, or take a photo below.</small>
           </p>
         </div>
       )}
@@ -148,7 +156,11 @@ export function TodayView({
   setDate,
   prompt,
   select,
+  savedIds,
+  revision,
 }: {
+  savedIds: string[];
+  revision: number;
   state: State;
   today: string;
   date: string;
@@ -184,25 +196,25 @@ export function TodayView({
         <h1>
           {date === today ? (
             <>
-              Room for a <em>good day.</em>
+              Today, <em>at a glance.</em>
             </>
           ) : (
             <>
-              A day in <em>your rhythm.</em>
+              Your <em>daily picture.</em>
             </>
           )}
         </h1>
         <p className="lede">
           {last && last.date < addDays(today, -2) && !entries.length
             ? "Welcome back. Your next meal is enough to begin again."
-            : "A little structure. Plenty of room for life."}
+            : "Your food, your targets, your next step."}
         </p>
       </div>
       <div className="today-grid">
         <section className="card intake-card">
           <div className="section-top">
             <span className="small-label">
-              {date === today ? "TODAY'S NOURISHMENT" : "DAILY NOURISHMENT"}
+              {date === today ? "DAILY INTAKE" : "DAILY INTAKE"}
             </span>
             <div className="date-nav">
               <button
@@ -223,6 +235,8 @@ export function TodayView({
               </button>
             </div>
           </div>
+          <div className="energy-overview">
+            <div className="energy-number"><span className="small-label">CALORIES LOGGED</span><strong><AnimatedNumber value={sum.kcal} /></strong><span>of {n(p.targets.calories)} kcal</span></div>
           <div className="calorie-ring">
             <svg viewBox="0 0 240 240" aria-hidden="true">
               <circle className="ring-track" cx="120" cy="120" r="104" />
@@ -238,16 +252,16 @@ export function TodayView({
               />
             </svg>
             <div className="ring-copy">
-              <span className="small-label">LOGGED</span>
-              <strong key={sum.kcal}>{n(sum.kcal)}</strong>
-              <span>of {n(p.targets.calories)} kcal</span>
+              <strong><AnimatedNumber value={sum.kcal / p.targets.calories * 100} /><small>%</small></strong>
+              <span>of target</span>
             </div>
           </div>
-          <div className="intake-caption">
+          </div>
+          <div className="intake-caption" key={revision}>
             {sum.kcal === 0
-              ? "One meal at a time."
+              ? "Ready when you are. Start with your next meal."
               : remain >= 0
-                ? `${n(remain)} kcal to your starting target`
+                ? `${n(remain)} kcal remaining to your starting target`
                 : `${n(-remain)} kcal above your starting target`}
           </div>
           <div className="macro-grid">
@@ -269,8 +283,8 @@ export function TodayView({
         <div className="today-aside">
           <section className="focus-card">
             <div className="section-top">
-              <span className="small-label">ONE SMALL PRACTICE</span>
-              <span className="sparkle">✧</span>
+              <span className="small-label">THIS WEEK’S FOCUS</span>
+              <span className="sparkle" aria-hidden="true">↗</span>
             </div>
             <h2>{p.coaching?.focus ?? "Make the next meal easier"}</h2>
             <p>
@@ -327,6 +341,7 @@ export function TodayView({
           </button>
         </div>
       </div>
+      <ProgressSummary state={s} today={today} prompt={prompt} compact />
       <section className="section-block">
         <div className="section-top">
           <h2>Your meals</h2>
@@ -335,7 +350,7 @@ export function TodayView({
             to adjust
           </span>
         </div>
-        <Meals entries={entries} select={select} />
+        <Meals entries={entries} select={select} savedIds={savedIds} />
         {entries.length > 0 && (
           <button
             className="text-link"
@@ -353,7 +368,7 @@ export function TodayView({
       </section>
       {!!s.memory.events.filter((e) => e.date >= today).length && (
         <section className="section-block">
-          <h2>A little ahead</h2>
+          <h2>Coming up</h2>
           {s.memory.events
             .filter((e) => e.date >= today)
             .sort((a, b) => a.date.localeCompare(b.date))
@@ -390,15 +405,15 @@ export function PlanView({
   return (
     <>
       <div className="page-heading">
-        <span className="eyebrow">YOUR LIVING PLAN</span>
+        <span className="eyebrow">BUILT AROUND YOU</span>
         <h1>
-          A plan that <em>fits you.</em>
+          Your plan. <em>Your pace.</em>
         </h1>
         <p className="lede">{c?.intention ?? p.copy.summary}</p>
       </div>
       <div className="plan-grid">
         <section className="card plan-targets">
-          <span className="small-label">YOUR DAILY STARTING POINT</span>
+          <span className="small-label">{p.profile.goal === "lose" ? "YOUR FAT-LOSS PLAN" : "YOUR DAILY STARTING POINT"}</span>
           <div className="plan-calories">
             <strong>{n(p.targets.calories)}</strong>
             <span>kcal / day</span>
@@ -418,6 +433,7 @@ export function PlanView({
               </div>
             ))}
           </div>
+          <div className="plan-explainer"><span className="small-label">HOW YOUR PLAN WORKS</span><p>{p.profile.goal === "lose" ? `Start around ${n(p.targets.calories)} kcal per day, with ${p.targets.proteinG}g protein. This is about ${n(Math.max(0, p.targets.tdee - p.targets.calories))} kcal below your estimated daily needs.` : `Start around ${n(p.targets.calories)} kcal per day, based on your profile and activity.`}</p><p className="caption">{p.targets.weeklyRateKg ? `Starting weight-change estimate: ${weight(Math.abs(p.targets.weeklyRateKg), p.profile.unit, 2)} per week ${p.targets.weeklyRateKg < 0 ? "down" : "up"}. ` : "Aim for a broadly stable weight. "}Review your trend, hunger and energy together. Weight change is not the same as fat loss; targets stay unchanged until you approve a revision.</p></div>
           <p className="caption mt-24">
             Estimates based on your profile and activity. A useful starting
             point, not a daily pass or fail.
@@ -584,10 +600,11 @@ export function ProgressView({
         <h1>
           Progress, <em>with perspective.</em>
         </h1>
-        <p className="lede">Notice what helps. Give the rest a little time.</p>
+        <p className="lede">See where you are. Know what to work on next.</p>
       </div>
+      <ProgressSummary state={s} today={today} prompt={prompt} />
       <div className="section-top">
-        <h2>Your rhythm</h2>
+        <h2>Your records</h2>
         <div className="segmented" aria-label="Progress range">
           {[7, 30, 90].map((v) => (
             <button

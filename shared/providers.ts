@@ -4,6 +4,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import type { ImageInput, Provider } from "./types";
 import { PROVIDERS } from "./catalog";
+import { researchNutrition, type ResearchResult } from "./research";
 
 export { PROVIDERS };
 
@@ -22,6 +23,7 @@ export interface AiClient {
   provider: Provider;
   demo: boolean;
   json<T>(req: JsonRequest<T>): Promise<T>;
+  research?(query: string, market: string): Promise<ResearchResult>;
 }
 
 export class AiError extends Error {
@@ -63,6 +65,7 @@ function anthropicClient(apiKey: string): AiClient {
   return {
     provider: "anthropic",
     demo: false,
+    research: (query, market) => researchNutrition("anthropic", apiKey, query, market),
     async json(req) {
       try {
         const response = await client.messages.parse({
@@ -95,6 +98,7 @@ function deepseekClient(apiKey: string): AiClient {
   return {
     provider: "deepseek",
     demo: false,
+    research: (query, market) => researchNutrition("deepseek", apiKey, query, market),
     async json(req) {
       const schemaJson = JSON.stringify(z.toJSONSchema(req.schema));
       const system = `${req.system}\n\nRespond with a single JSON object and nothing else. It must match this JSON schema exactly:\n${schemaJson}`;

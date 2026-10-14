@@ -3,6 +3,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
 import { bodyLimit } from "hono/body-limit";
+import { stream } from "hono/streaming";
 import {
   runCoach,
   ImageSchema,
@@ -152,7 +153,7 @@ const CoachBody = z.object({
     bodyMetrics: z.array(BodyMetricsSchema).max(90).optional(),
     today: date,
     plan: PlanSchema.nullable(),
-    entries: z.array(EntrySchema).max(60),
+    entries: z.array(EntrySchema).max(500),
     weighIns: z.array(WeightSchema).max(60),
     memory: MemorySchema,
     completedDays: z.array(date).max(90).optional(),
@@ -179,8 +180,21 @@ app.post("/api/coach", async (c) => {
       },
       400,
     );
+  const b = body.data;
+  if (c.req.header("accept") === "application/x-ndjson") {
+    c.header("Content-Type", "application/x-ndjson");
+    c.header("Cache-Control", "no-store");
+    return stream(c, async s => {
+      try {
+        const result = await runCoach(resolve(b.provider, b.apiKey), { text: b.text, images: b.images }, b.context as CoachContext,
+          stage => { void s.write(JSON.stringify({ stage }) + "\n").catch(() => {}); });
+        await s.write(JSON.stringify({ result }) + "\n");
+      } catch (error) {
+        await s.write(JSON.stringify({ error: error instanceof AiError ? error.message : "Could not finish that request. Please try again." }) + "\n");
+      }
+    });
+  }
   try {
-    const b = body.data;
     return c.json(
       await runCoach(
         resolve(b.provider, b.apiKey),

@@ -91,7 +91,7 @@ export function Composer(p: Props) {
           </div>
         )}
         <form
-          className={`composer ${speech.listening ? "is-listening" : ""}`}
+          className={`composer ${speech.listening ? "is-listening" : ""} ${p.busy ? "is-working" : ""} ${p.text.trim() || p.images.length ? "has-input" : ""}`}
           onSubmit={(e) => {
             e.preventDefault();
             send();
@@ -125,7 +125,7 @@ export function Composer(p: Props) {
             placeholder={
               speech.listening
                 ? "Listening…"
-                : "A meal, a question, a change of plans…"
+                : "What did you eat? Or ask me anything…"
             }
             rows={2}
             value={p.text}
@@ -187,7 +187,7 @@ export function Composer(p: Props) {
                   ? "Preparing photo…"
                   : speech.listening
                     ? "Listening · tap to stop"
-                    : "Tell it your way"}
+                    : "Text, voice or photo"}
               </span>
             </div>
             <button
@@ -216,7 +216,7 @@ export function Composer(p: Props) {
               Sample mode · connect DeepSeek to make it yours ↗
             </button>
           ) : (
-            "AI estimates. You review. Your plan evolves."
+            "Web sources when available. Always yours to review."
           )}
         </div>
       </div>

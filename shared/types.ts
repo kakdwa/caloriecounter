@@ -54,6 +54,7 @@ export type PlanResponse =
   { status: "ok"; plan: Plan } | { status: "need_more"; question: string };
 
 export interface FoodItem {
+  evidence?: NutritionEvidence;
   name: string;
   detail: string;
   kcal: number;
@@ -128,6 +129,7 @@ export interface BodyMetrics {
   leanBodyMassKg?: number;
 }
 export interface CoachUpdate {
+  research?: { status: "found" | "no_results" | "unavailable"; sources: NutritionSource[]; note: string };
   bodyMetrics?: BodyMetrics[];
   title: string;
   summary: string;
@@ -142,6 +144,21 @@ export interface CoachUpdate {
   removedEventIds?: string[];
   options: { title: string; description: string }[];
   demo: boolean;
+}
+
+export type CoachStage = "understanding" | "searching" | "structuring";
+export interface NutritionSource {
+  id: string;
+  url: string;
+  title: string;
+  excerpt: string;
+  accessedAt: string;
+}
+export interface NutritionEvidence {
+  sources: NutritionSource[];
+  market: string;
+  serving: string;
+  fields: ("kcal" | "proteinG" | "carbsG" | "fatG")[];
 }
 export interface CoachContext {
   bodyMetrics?: BodyMetrics[];

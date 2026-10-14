@@ -1,4 +1,5 @@
 import type { CoachUpdate } from "../../shared/types";
+import { NutritionEvidence, SourceLinks } from "./NutritionEvidence";
 import { hasChanges } from "../lib/data";
 import { itemTotals } from "../lib/totals";
 import { n, shortDate, weight } from "../lib/format";
@@ -37,6 +38,11 @@ export function Proposal({
       </div>
       <h2 id="proposal-title">{u.title}</h2>
       <p className="muted">{u.summary}</p>
+      {u.research && <div className={`research-receipt ${u.research.status}`}>
+        <span className="research-icon" aria-hidden="true">↗</span>
+        <div><strong>{u.research.status === "found" ? "Nutrition sources found" : "Using estimates"}</strong><p>{u.research.note}</p>
+        {!!u.research.sources.length && <details><summary>View all {u.research.sources.length} sources</summary><SourceLinks sources={u.research.sources} /></details>}</div>
+      </div>}
       {u.question && (
         <div className="question">
           <span className="small-label">ONE THING TO CLARIFY</span>
@@ -107,7 +113,7 @@ export function Proposal({
           <h3>{m.label}</h3>
           {m.operation !== "remove" &&
             m.items.map((it, j) => (
-              <div className="food-preview" key={j}>
+              <div className="food-review" key={j}><div className="food-preview">
                 <div>
                   {it.name}
                   <span className="caption">{it.detail}</span>
@@ -118,7 +124,7 @@ export function Proposal({
                     P {n(it.proteinG)} · C {n(it.carbsG)} · F {n(it.fatG)} g
                   </span>
                 </div>
-              </div>
+              </div><NutritionEvidence item={it} /></div>
             ))}
         </div>
       ))}

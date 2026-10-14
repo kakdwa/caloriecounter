@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { CoachUpdate, Entry, ImageInput } from "../shared/types";
+import type { CoachStage, CoachUpdate, Entry, ImageInput } from "../shared/types";
 import { getProviders, sendToCoach, type ProvidersInfo } from "./lib/api";
 import { store, useStore } from "./lib/store";
-import { localDate } from "./lib/format";
+import { addDays, localDate } from "./lib/format";
 import { Composer } from "./components/Composer";
 import { Proposal } from "./components/Proposal";
 import {
@@ -13,6 +13,7 @@ import {
   type View,
 } from "./screens/Workspace";
 import { Settings } from "./screens/Settings";
+import { RequestActivity } from "./components/RequestActivity";
 import { GearIcon } from "./components/Icons";
 export default function App() {
   const state = useStore();
@@ -28,6 +29,10 @@ export default function App() {
     [toast, setToast] = useState(""),
     [today, setToday] = useState(localDate()),
     [date, setDate] = useState(localDate());
+  const [stage, setStage] = useState<CoachStage>("understanding");
+  const [submitted, setSubmitted] = useState("");
+  const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [revision, setRevision] = useState(0);
   const review = useRef<HTMLDivElement>(null),
     request = useRef(false);
   useEffect(() => {
@@ -56,6 +61,8 @@ export default function App() {
     if (request.current || (!message.trim() && !images.length)) return;
     request.current = true;
     setBusy(true);
+    setStage("understanding");
+    setSubmitted(message);
     setError("");
     setToast("");
     try {
@@ -65,9 +72,10 @@ export default function App() {
           (a, b) =>
             a.date.localeCompare(b.date) || a.time.localeCompare(b.time),
         )
-        .slice(-60);
+        .filter((e, i, all) => e.date >= addDays(today, -13) || i >= all.length - 60)
+        .slice(-500);
       if (selected && !entries.some((e) => e.id === selected.id)) {
-        entries.shift();
+        if (entries.length >= 500) entries.shift();
         entries.push(selected);
       }
       const result = await sendToCoach(message, images, {
@@ -82,10 +90,10 @@ export default function App() {
           practices: current.memory.practices.slice(-90),
         },
         history: current.history.slice(-8),
-        completedDays: current.completedDays.slice(-90),
+        completedDays: current.completedDays.filter(d => current.entries.filter(e => e.date === d).every(e => entries.some(included => included.id === e.id))).slice(-90),
         pending: update,
         selectedEntryId: selected?.id ?? null,
-      });
+      }, setStage);
       setUpdate(result);
       setText("");
       setImages([]);
@@ -121,18 +129,23 @@ export default function App() {
   function save() {
     if (!update) return;
     try {
+      const before = store.get().entries;
       store.apply(update, today);
+      const after = store.get().entries;
+      setSavedIds(after.filter(e => !before.some(b => b.id === e.id && JSON.stringify(b) === JSON.stringify(e))).map(e => e.id));
+      setRevision(v => v + 1);
       setToast(
         update.plan
-          ? "Your plan is ready. One day at a time."
-          : "Saved. A little more clarity.",
+          ? "Plan saved. Your daily targets are ready."
+          : "Saved. Your dashboard is up to date.",
       );
       setUpdate(null);
       setSelected(null);
       if (update.plan) setView("plan");
-      else if (update.weighIns.length && !update.meals.length)
+      else if ((update.weighIns.length || update.bodyMetrics?.length) && !update.meals.length)
         setView("progress");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      else if (update.meals.length) { setView("today"); setDate(update.meals[0].date); }
+      window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Could not save. Please try again.",
@@ -153,9 +166,9 @@ export default function App() {
             aria-label="Calorie home"
           >
             <span className="brand-mark" aria-hidden="true">
-              ◌
+              <svg viewBox="0 0 32 32" width="32" height="32" fill="none"><path d="M24 8a11.3 11.3 0 1 0 0 16" stroke="currentColor" strokeWidth="5" strokeLinecap="round"/><circle cx="24" cy="16" r="3" fill="currentColor"/></svg>
             </span>
-            calorie<span className="brand-subtitle">a little, every day</span>
+            calorie<span className="brand-subtitle">Nutrition, made personal</span>
           </button>
           <div className="header-right">
             <span className="connection-label">
@@ -177,7 +190,8 @@ export default function App() {
           </div>
         </header>
         {state.plan && (
-          <nav className="main-nav" aria-label="Main navigation">
+          <nav className="main-nav" aria-label="Main navigation" style={{ "--active-tab": ["today", "plan", "progress"].indexOf(view) } as React.CSSProperties}>
+            <span className="nav-indicator" aria-hidden="true" />
             {(["today", "plan", "progress"] as const).map((v) => (
               <button
                 aria-current={view === v ? "page" : undefined}
@@ -197,7 +211,7 @@ export default function App() {
         <main>
           <div role="status" aria-live="polite">
             {toast && (
-              <div className="toast">
+              <div className="toast" key={revision}>
                 <span className="success-check">✓</span>
                 <span>{toast}</span>
                 <button
@@ -237,18 +251,11 @@ export default function App() {
               </button>
             </div>
           )}
-          {busy && (
-            <div className="thinking" role="status">
-              <span className="thinking-orb" />
-              <div>
-                <strong>Finding a little clarity…</strong>
-                <p>Your meals, your goals, your real life.</p>
-              </div>
-            </div>
-          )}
-          <div ref={review} className="review-anchor">
+          {busy && <RequestActivity stage={stage} input={submitted} />}
+          <div ref={review} className="review-anchor" aria-busy={busy}>
             {update && (
               <Proposal
+                key={JSON.stringify(update)}
                 update={update}
                 busy={busy}
                 onSave={save}
@@ -278,6 +285,8 @@ export default function App() {
                   setDate={setDate}
                   prompt={prompt}
                   select={select}
+                  savedIds={savedIds}
+                  revision={revision}
                 />
               ) : view === "plan" ? (
                 <PlanView state={state} prompt={prompt} />
@@ -293,7 +302,7 @@ export default function App() {
           )}
         </main>
         <footer className="page-footer">
-          Built around your life. Adjusted as you go.
+          Your pace. Your progress.
         </footer>
       </div>
       <Composer

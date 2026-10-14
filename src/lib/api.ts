@@ -99,16 +99,48 @@ export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok
 }
 
 
-export async function sendToCoach(text: string, images: import("../../shared/types").ImageInput[], context: import("../../shared/types").CoachContext): Promise<import("../../shared/types").CoachUpdate> {
+export async function sendToCoach(text: string, images: import("../../shared/types").ImageInput[], context: import("../../shared/types").CoachContext, onStage?: (stage: import("../../shared/types").CoachStage) => void): Promise<import("../../shared/types").CoachUpdate> {
   const info = await getProviders();
   const c = chosen(info);
-  if (info.mode === "server") return post("api/coach", { text, images, context, ...c });
+  if (info.mode === "server") return streamCoach({ text, images, context, ...c }, onStage);
   try {
     const [providers, coach] = await Promise.all([import("../../shared/providers"), import("../../shared/coach")]);
-    return await coach.runCoach(providers.makeClient(c.provider, c.apiKey), { text, images }, context);
+    return await coach.runCoach(providers.makeClient(c.provider, c.apiKey), { text, images }, context, onStage);
   } catch (e) {
     const message = e instanceof Error ? e.message : "I could not finish that. Please try again.";
     if (/dynamically imported|module script|Importing a module/i.test(message)) throw new ApiError("The app has been updated. Copy any unsent message, then reload this page. Your saved records are safe.");
     throw new ApiError(message);
   }
+}
+
+async function streamCoach(body: unknown, onStage?: (stage: import("../../shared/types").CoachStage) => void): Promise<import("../../shared/types").CoachUpdate> {
+  let res: Response;
+  try { res = await fetch("api/coach", { method: "POST", headers: { "content-type": "application/json", accept: "application/x-ndjson" }, body: JSON.stringify(body), signal: AbortSignal.timeout(270000) });
+  } catch { throw new ApiError("Could not reach your coach or the request timed out. Your message is still here to retry."); }
+  if (!res.ok) {
+    const failure = await res.json().catch(() => ({}));
+    throw new ApiError(failure.error ?? "Could not reach your coach. Try again.");
+  }
+  if (!res.headers.get("content-type")?.includes("ndjson")) return res.json();
+  const reader = res.body?.getReader();
+  if (!reader) throw new ApiError("No response received. Please retry.");
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split("\n"); buffer = lines.pop()!;
+      if (done && buffer.trim()) lines.push(buffer);
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.error) throw new ApiError(event.error);
+        if (["understanding", "searching", "structuring"].includes(event.stage)) onStage?.(event.stage);
+        if (event.result) return event.result;
+      }
+      if (done) break;
+    }
+    throw new ApiError("The response was interrupted. Your message is still here to retry.");
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }

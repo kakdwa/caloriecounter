@@ -229,6 +229,10 @@ export function Settings({
           Keys are stored in browser storage, not included in backups. Voice
           uses your browser's speech service.
         </p>
+        <p className="caption">
+          Restaurant nutrition can be searched online using this same key.
+          Searches add provider usage. Source links and estimates appear in your review.
+        </p>
       </section>
       <section className="settings-section">
         <div className="section-top">

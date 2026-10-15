@@ -42,6 +42,8 @@ export interface PlanCopy {
 }
 
 export interface Plan {
+  startingWeightKg?: number;
+  targetsChangedAt?: string;
   profile: Profile;
   targets: Targets;
   copy: PlanCopy;
@@ -161,6 +163,7 @@ export interface NutritionEvidence {
   fields: ("kcal" | "proteinG" | "carbsG" | "fatG")[];
 }
 export interface CoachContext {
+  logDate?: string;
   bodyMetrics?: BodyMetrics[];
   today: string;
   plan: Plan | null;

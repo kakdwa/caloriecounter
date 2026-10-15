@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { CoachStage, CoachUpdate, Entry, ImageInput } from "../shared/types";
 import { getProviders, sendToCoach, type ProvidersInfo } from "./lib/api";
 import { store, useStore } from "./lib/store";
-import { addDays, localDate } from "./lib/format";
+import { addDays, localDate, shortDate } from "./lib/format";
+import { quickUpdate, type QuickAction } from "./lib/actions";
+import { emptyDraft, readDraft, writeDraft } from "./lib/draft";
 import { Composer } from "./components/Composer";
 import { Proposal } from "./components/Proposal";
 import {
@@ -13,28 +15,53 @@ import {
   type View,
 } from "./screens/Workspace";
 import { Settings } from "./screens/Settings";
-import { RequestActivity } from "./components/RequestActivity";
 import { GearIcon } from "./components/Icons";
 export default function App() {
   const state = useStore();
-  const [view, setView] = useState<View>("today"),
+  const [draft] = useState(() => { try { return readDraft(sessionStorage); } catch { return emptyDraft(); } });
+  const route = () => (["plan", "progress"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "today") as View;
+  const [view, changeView] = useState<View>(route),
     [settingsOpen, setSettingsOpen] = useState(false),
     [info, setInfo] = useState<ProvidersInfo | null>(null),
-    [text, setText] = useState(""),
-    [images, setImages] = useState<ImageInput[]>([]),
+    [text, setText] = useState(draft.text),
+    [images, setImages] = useState<ImageInput[]>(draft.images),
     [busy, setBusy] = useState(false),
-    [update, setUpdate] = useState<CoachUpdate | null>(null),
+    [update, setUpdate] = useState<CoachUpdate | null>(draft.update),
     [error, setError] = useState(""),
-    [selected, setSelected] = useState<Entry | null>(null),
+    [selected, setSelected] = useState<Entry | null>(state.entries.find(e => e.id === draft.selectedId) ?? null),
     [toast, setToast] = useState(""),
     [today, setToday] = useState(localDate()),
-    [date, setDate] = useState(localDate());
+    [date, setDate] = useState(draft.logDate ?? localDate());
   const [stage, setStage] = useState<CoachStage>("understanding");
   const [submitted, setSubmitted] = useState("");
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [revision, setRevision] = useState(0);
+  const [undoAvailable, setUndoAvailable] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(true);
   const review = useRef<HTMLDivElement>(null),
-    request = useRef(false);
+    request = useRef<AbortController | null>(null);
+  const previousToday = useRef(today);
+  const smooth = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" as const : "smooth" as const;
+  function setView(next: View) {
+    if (next !== view) history.pushState(null, "", `#${next}`);
+    changeView(next);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+  useEffect(() => {
+    const back = () => changeView(route());
+    window.addEventListener("popstate", back);
+    return () => { window.removeEventListener("popstate", back); request.current?.abort(); };
+  }, []);
+  useEffect(() => {
+    try { setDraftSaved(writeDraft(sessionStorage, { text, images, update, selectedId: selected?.id ?? null, logDate: date })); }
+    catch { setDraftSaved(false); }
+  }, [text, images, update, selected, date]);
+  useEffect(() => {
+    if (draftSaved || (!text && !images.length && !update)) return;
+    const protect = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", protect);
+    return () => window.removeEventListener("beforeunload", protect);
+  }, [draftSaved, text, images, update]);
   useEffect(() => {
     getProviders()
       .then(setInfo)
@@ -43,7 +70,10 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
-    setDate(today);
+    if (previousToday.current === today) return;
+    const oldDay = previousToday.current;
+    previousToday.current = today;
+    setDate(previous => previous === oldDay && !text.trim() && !images.length && !update ? today : previous);
   }, [today]);
   const active = state.settings.provider ?? info?.default ?? "deepseek",
     demo =
@@ -51,7 +81,8 @@ export default function App() {
       !state.settings.apiKeys[active]?.trim() &&
       !info.providers.find((p) => p.provider === active)?.configured;
   function prompt(value: string) {
-    setText(value);
+    if (request.current) return;
+    setText(previous => previous.trim() ? `${previous.trim()}\n${value}` : value);
     requestAnimationFrame(() =>
       document.getElementById("coach-input")?.focus(),
     );
@@ -59,12 +90,15 @@ export default function App() {
   async function send(override?: string) {
     const message = override ?? text;
     if (request.current || (!message.trim() && !images.length)) return;
-    request.current = true;
+    const controller = new AbortController();
+    request.current = controller;
     setBusy(true);
     setStage("understanding");
     setSubmitted(message);
     setError("");
     setToast("");
+    setUndoAvailable(false);
+    if (override) setText(override);
     try {
       const current = store.get();
       const entries = [...current.entries]
@@ -80,6 +114,7 @@ export default function App() {
       }
       const result = await sendToCoach(message, images, {
         today,
+        logDate: date,
         bodyMetrics: current.bodyMetrics.slice(-90),
         plan: current.plan,
         entries,
@@ -93,7 +128,8 @@ export default function App() {
         completedDays: current.completedDays.filter(d => current.entries.filter(e => e.date === d).every(e => entries.some(included => included.id === e.id))).slice(-90),
         pending: update,
         selectedEntryId: selected?.id ?? null,
-      }, setStage);
+      }, next => { if (!controller.signal.aborted) setStage(next); }, controller.signal);
+      if (controller.signal.aborted) return;
       setUpdate(result);
       setText("");
       setImages([]);
@@ -106,25 +142,49 @@ export default function App() {
       }
       setTimeout(
         () =>
-          review.current?.scrollIntoView({
+          { review.current?.focus({ preventScroll: true }); review.current?.scrollIntoView({
             behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
               .matches
               ? "instant"
               : "smooth",
             block: "start",
-          }),
+          }); },
         80,
       );
     } catch (e) {
+      if (controller.signal.aborted) return;
       setError(
         e instanceof Error
           ? e.message
           : "I could not finish that. Your message is still here to retry.",
       );
     } finally {
-      request.current = false;
-      setBusy(false);
+      if (request.current === controller) {
+        request.current = null;
+        setBusy(false);
+      }
     }
+  }
+  function stop() {
+    request.current?.abort();
+    request.current = null;
+    setBusy(false);
+    setToast("Stopped. Your message is ready to edit or retry.");
+    setUndoAvailable(false);
+  }
+  function act(action: QuickAction) {
+    if (busy || update) return;
+    try {
+      const before = store.get().entries;
+      store.apply(quickUpdate(store.get(), action, today), today);
+      setSavedIds(store.get().entries.filter(e => !before.some(b => b.id === e.id)).map(e => e.id));
+      setRevision(v => v + 1);
+      setUndoAvailable(true);
+      setToast(action.type === "practice" ? "Practice recorded. A small step counts."
+        : action.type === "complete" ? action.complete ? "Day complete. Included in your progress review." : "Day reopened."
+        : action.type === "repeat" ? "Meal added with the same portions." : "Meal removed.");
+      setError("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not save. Please try again."); }
   }
   function save() {
     if (!update) return;
@@ -134,6 +194,7 @@ export default function App() {
       const after = store.get().entries;
       setSavedIds(after.filter(e => !before.some(b => b.id === e.id && JSON.stringify(b) === JSON.stringify(e))).map(e => e.id));
       setRevision(v => v + 1);
+      setUndoAvailable(true);
       setToast(
         update.plan
           ? "Plan saved. Your daily targets are ready."
@@ -145,7 +206,7 @@ export default function App() {
       else if ((update.weighIns.length || update.bodyMetrics?.length) && !update.meals.length)
         setView("progress");
       else if (update.meals.length) { setView("today"); setDate(update.meals[0].date); }
-      window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+      window.scrollTo({ top: 0, behavior: smooth() });
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Could not save. Please try again.",
@@ -153,12 +214,13 @@ export default function App() {
     }
   }
   function select(e: Entry) {
+    if (busy || update) return;
     setSelected(e);
     prompt("Change this meal: ");
   }
   return (
     <>
-      <div className="app-shell">
+      <div className="app-shell" inert={settingsOpen}>
         <header className="app-header">
           <button
             className="brand"
@@ -209,50 +271,20 @@ export default function App() {
           </nav>
         )}
         <main>
-          <div role="status" aria-live="polite">
-            {toast && (
-              <div className="toast" key={revision}>
-                <span className="success-check">✓</span>
-                <span>{toast}</span>
-                <button
-                  onClick={() => {
-                    try {
-                      store.undo();
-                      setToast("");
-                    } catch (e) {
-                      setError(String(e));
-                    }
-                  }}
-                >
-                  Undo
-                </button>
-                <button
-                  aria-label="Dismiss saved message"
-                  onClick={() => setToast("")}
-                >
-                  ×
-                </button>
-              </div>
-            )}
-          </div>
           {state.plan?.demo && (
             <div className="sample-banner">
-              You're exploring a fictional sample plan.
+              Fictional sample plan
               <button onClick={() => setSettingsOpen(true)}>
                 Make it yours ↗
               </button>
             </div>
           )}
-          {(error || store.storageError()) && (
+          {store.storageError() && (
             <div className="error-card" role="alert">
-              {error || store.storageError()}
-              <button onClick={() => setError("")} aria-label="Dismiss error">
-                ×
-              </button>
+              {store.storageError()}
             </div>
           )}
-          {busy && <RequestActivity stage={stage} input={submitted} />}
-          <div ref={review} className="review-anchor" aria-busy={busy}>
+          <div ref={review} className="review-anchor" aria-busy={busy} tabIndex={-1}>
             {update && (
               <Proposal
                 key={JSON.stringify(update)}
@@ -287,6 +319,9 @@ export default function App() {
                   select={select}
                   savedIds={savedIds}
                   revision={revision}
+                  act={act}
+                  locked={busy || !!update}
+                  progress={() => setView("progress")}
                 />
               ) : view === "plan" ? (
                 <PlanView state={state} prompt={prompt} />
@@ -301,9 +336,6 @@ export default function App() {
             </div>
           )}
         </main>
-        <footer className="page-footer">
-          Your pace. Your progress.
-        </footer>
       </div>
       <Composer
         text={text}
@@ -316,13 +348,38 @@ export default function App() {
         onClear={() => setSelected(null)}
         demo={demo}
         onSettings={() => setSettingsOpen(true)}
-      />
+        stage={stage}
+        submitted={submitted}
+        onStop={stop}
+        placeholder={!state.plan ? "Tell me your goal…" : update?.question ? "Your answer…" : selected || update ? "Tell me what to change…" : view === "plan" ? "Ask about your plan…" : view === "progress" ? "Add a weigh-in or ask your coach…" : "Log a meal or ask anything…"}
+        draftSaved={draftSaved}
+        logDate={state.plan && date !== today && !selected && !update ? shortDate(date) : null}
+        onToday={() => setDate(today)}
+        modalOpen={settingsOpen}
+        error={error}
+        onDismissError={() => setError("")}
+      >
+        <div role="status" aria-live="polite">
+          {toast && <div className="toast" key={revision}>
+            <span className="success-check" aria-hidden="true">✓</span><span>{toast}</span>
+            {undoAvailable && <button onClick={() => {
+              try { store.undo(); setToast(""); setSavedIds([]); setUndoAvailable(false); }
+              catch (e) { setError(String(e)); }
+            }}>Undo</button>}
+            <button aria-label="Dismiss saved message" onClick={() => setToast("")}>×</button>
+          </div>}
+        </div>
+      </Composer>
       {settingsOpen && (
         <Settings
           providers={info?.providers ?? null}
           serverDefault={info?.default ?? "deepseek"}
           mode={info?.mode ?? "direct"}
           onClose={() => setSettingsOpen(false)}
+          onConnected={() => {
+            setSettingsOpen(false);
+            if (!state.plan || state.plan.demo) prompt("I'd like to create my personal nutrition plan. ");
+          }}
           onDataChanged={() => {
             setUpdate(null);
             setSelected(null);

@@ -34,10 +34,10 @@ export class AiError extends Error {
 
 const inBrowser = typeof window !== "undefined";
 
-export function makeClient(provider: Provider, apiKey: string | undefined): AiClient {
+export function makeClient(provider: Provider, apiKey: string | undefined, signal?: AbortSignal): AiClient {
   const key = apiKey?.trim();
   if (!key) return demoClient(provider);
-  return provider === "anthropic" ? anthropicClient(key) : deepseekClient(key);
+  return provider === "anthropic" ? anthropicClient(key, signal) : deepseekClient(key, signal);
 }
 
 /** Verify a key with a request that costs no tokens. */
@@ -60,12 +60,12 @@ export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok
 
 // ---------------------------------------------------------------- Anthropic
 
-function anthropicClient(apiKey: string): AiClient {
+function anthropicClient(apiKey: string, signal?: AbortSignal): AiClient {
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: inBrowser, timeout: 60000, maxRetries: 1 });
   return {
     provider: "anthropic",
     demo: false,
-    research: (query, market) => researchNutrition("anthropic", apiKey, query, market),
+    research: (query, market) => researchNutrition("anthropic", apiKey, query, market, signal),
     async json(req) {
       try {
         const response = await client.messages.parse({
@@ -77,11 +77,12 @@ function anthropicClient(apiKey: string): AiClient {
             { type: "text" as const, text: req.user },
           ] }],
           output_config: { format: zodOutputFormat(req.schema), effort: req.effort },
-        });
+        }, { signal });
         if (response.stop_reason === "refusal") throw new AiError("The model declined this request.");
         if (!response.parsed_output) throw new AiError("The model returned something I could not read.");
         return response.parsed_output;
       } catch (error) {
+        signal?.throwIfAborted();
         if (error instanceof AiError) throw error;
         if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) throw new AiError("Claude rejected the API key.", 401);
         if (error instanceof Anthropic.RateLimitError) throw new AiError("Claude is rate limiting right now. Try again in a moment.", 429);
@@ -94,11 +95,11 @@ function anthropicClient(apiKey: string): AiClient {
 
 // ---------------------------------------------------------------- DeepSeek (OpenAI-compatible)
 
-function deepseekClient(apiKey: string): AiClient {
+function deepseekClient(apiKey: string, signal?: AbortSignal): AiClient {
   return {
     provider: "deepseek",
     demo: false,
-    research: (query, market) => researchNutrition("deepseek", apiKey, query, market),
+    research: (query, market) => researchNutrition("deepseek", apiKey, query, market, signal),
     async json(req) {
       const schemaJson = JSON.stringify(z.toJSONSchema(req.schema));
       const system = `${req.system}\n\nRespond with a single JSON object and nothing else. It must match this JSON schema exactly:\n${schemaJson}`;
@@ -107,7 +108,7 @@ function deepseekClient(apiKey: string): AiClient {
         res = await fetch("https://api.deepseek.com/chat/completions", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-          signal: AbortSignal.timeout(60000),
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000),
           body: JSON.stringify({
             model: PROVIDERS.deepseek.model,
             messages: [
@@ -124,6 +125,7 @@ function deepseekClient(apiKey: string): AiClient {
           }),
         });
       } catch {
+        signal?.throwIfAborted();
         throw new AiError("Could not reach DeepSeek. Check your connection.");
       }
       if (res.status === 401 || res.status === 403) throw new AiError("DeepSeek rejected the API key.", 401);

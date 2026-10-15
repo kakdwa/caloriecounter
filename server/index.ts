@@ -15,6 +15,7 @@ import {
   EntrySchema,
   WeightSchema,
   MemorySchema,
+  CoachUpdateSchema,
 } from "../shared/state-schema";
 import type { CoachContext } from "../shared/types";
 import { AiError, checkKey, makeClient } from "../shared/providers";
@@ -56,10 +57,10 @@ function defaultProvider(): Provider {
 }
 
 /** A key sent by the app wins over the server's environment. */
-function resolve(provider: Provider | undefined, apiKey: string | undefined) {
+function resolve(provider: Provider | undefined, apiKey: string | undefined, signal?: AbortSignal) {
   const p: Provider =
     provider && provider in PROVIDERS ? provider : defaultProvider();
-  return makeClient(p, apiKey?.trim() || process.env[PROVIDERS[p].env]);
+  return makeClient(p, apiKey?.trim() || process.env[PROVIDERS[p].env], signal);
 }
 
 function fail(c: any, error: unknown) {
@@ -150,6 +151,7 @@ const CoachBody = z.object({
   text: z.string().max(12000),
   images: z.array(ImageSchema).max(2),
   context: z.object({
+    logDate: date.optional(),
     bodyMetrics: z.array(BodyMetricsSchema).max(90).optional(),
     today: date,
     plan: PlanSchema.nullable(),
@@ -165,7 +167,7 @@ const CoachBody = z.object({
         }),
       )
       .max(8),
-    pending: z.any().nullable(),
+    pending: CoachUpdateSchema.nullable(),
     selectedEntryId: z.string().nullable(),
   }),
   ...ClientFields,
@@ -185,11 +187,14 @@ app.post("/api/coach", async (c) => {
     c.header("Content-Type", "application/x-ndjson");
     c.header("Cache-Control", "no-store");
     return stream(c, async s => {
+      const controller = new AbortController();
+      s.onAbort(() => controller.abort());
       try {
-        const result = await runCoach(resolve(b.provider, b.apiKey), { text: b.text, images: b.images }, b.context as CoachContext,
+        const result = await runCoach(resolve(b.provider, b.apiKey, controller.signal), { text: b.text, images: b.images }, b.context as CoachContext,
           stage => { void s.write(JSON.stringify({ stage }) + "\n").catch(() => {}); });
         await s.write(JSON.stringify({ result }) + "\n");
       } catch (error) {
+        if (controller.signal.aborted) return;
         await s.write(JSON.stringify({ error: error instanceof AiError ? error.message : "Could not finish that request. Please try again." }) + "\n");
       }
     });

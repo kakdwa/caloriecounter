@@ -7,6 +7,8 @@ import type { State } from "../lib/store";
 import { addDays, n, shortDate, weight, weekStart } from "../lib/format";
 import { totals, itemTotals } from "../lib/totals";
 import type { Entry, WeighIn } from "../../shared/types";
+import type { QuickAction } from "../lib/actions";
+import { completeFoodDays } from "../../shared/progress";
 export type View = "today" | "plan" | "progress";
 export function Welcome({
   prompt,
@@ -34,6 +36,25 @@ export function Welcome({
         <br />
         Just tell us what’s on your mind.
       </p>
+      <div className="welcome-actions">
+      <button
+        className="btn"
+        onClick={
+          demo ? connect : () => prompt("I'd like to build my diet plan. ")
+        }
+      >
+        {demo ? "Connect DeepSeek" : "Let's make my plan"}
+        <span>↗</span>
+      </button>
+      {demo && (
+        <button
+          className="text-link sample-button"
+          onClick={() => prompt("Explore the sample plan")}
+        >
+          Explore a sample first
+        </button>
+      )}
+      </div>
       <div className="welcome-steps">
         <div>
           <span>01</span>
@@ -56,23 +77,6 @@ export function Welcome({
           </p>
         </div>
       </div>
-      <button
-        className="btn"
-        onClick={
-          demo ? connect : () => prompt("I'd like to build my diet plan. ")
-        }
-      >
-        {demo ? "Connect DeepSeek" : "Let's make my plan"}
-        <span>↗</span>
-      </button>
-      {demo && (
-        <button
-          className="text-link sample-button"
-          onClick={() => prompt("Explore the sample plan")}
-        >
-          Explore a sample first
-        </button>
-      )}
       <p className="caption centered">
         Your data stays in this browser. AI receives the context needed to help.
       </p>
@@ -109,7 +113,11 @@ function Meals({
   entries,
   select,
   savedIds,
+  act,
+  locked,
 }: {
+  act: (action: QuickAction) => void;
+  locked: boolean;
   savedIds: string[];
   entries: Entry[];
   select: (e: Entry) => void;
@@ -118,7 +126,7 @@ function Meals({
     <div className="meals">
       {entries.length ? (
         entries.map((e) => (
-          <div className={`meal-card ${savedIds.includes(e.id) ? "just-saved" : ""}`} key={e.id}><button className="meal-row" onClick={() => select(e)}>
+          <div className={`meal-card ${savedIds.includes(e.id) ? "just-saved" : ""}`} key={e.id}><button className="meal-row" disabled={locked} onClick={() => select(e)} aria-label={`Adjust ${e.text}`}>
             <span className="meal-symbol">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 3v6a3 3 0 0 0 6 0V3M7 3v18M18 3c-3 4-3 8 1 9V3m0 9v9"/></svg>
             </span>
@@ -135,7 +143,7 @@ function Meals({
             </span>
           </button>
           <div className="meal-detail-line"><span>{n(itemTotals(e.items).proteinG)}g protein</span><span>{n(itemTotals(e.items).carbsG)}g carbs</span><span>{n(itemTotals(e.items).fatG)}g fat</span></div>
-          <details className="meal-details"><summary>Nutrition details <span>＋</span></summary>{e.items.map((item, j) => <div key={j} className="saved-food"><strong>{item.name}</strong><p className="caption">{item.detail} · {n(item.kcal)} kcal</p><NutritionEvidence item={item}/></div>)}</details>
+          <details className="meal-details"><summary>Nutrition & sources <span>＋</span></summary>{e.items.map((item, j) => <div key={j} className="saved-food"><strong>{item.name}</strong><p className="caption">{item.detail} · {n(item.kcal)} kcal</p><NutritionEvidence item={item}/></div>)}<button className="text-link remove-meal" disabled={locked} onClick={() => act({ type: "remove", entryId: e.id })}>Remove this meal</button></details>
           </div>
         ))
       ) : (
@@ -158,7 +166,13 @@ export function TodayView({
   select,
   savedIds,
   revision,
+  act,
+  locked,
+  progress,
 }: {
+  act: (action: QuickAction) => void;
+  locked: boolean;
+  progress: () => void;
   savedIds: string[];
   revision: number;
   state: State;
@@ -180,6 +194,10 @@ export function TodayView({
     ),
     days = new Set(practices.map((v) => v.date));
   const done = s.completedDays.includes(date);
+  const recent = [...s.entries].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
+    .filter(e => e.date < date && (p.demo || !e.demo))
+    .filter((e, i, all) => i === all.findIndex(other => other.text === e.text && JSON.stringify(other.items) === JSON.stringify(e.items)))
+    .slice(0, 3);
   const last = s.entries
     .filter((e) => e.date < today)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -196,25 +214,25 @@ export function TodayView({
         <h1>
           {date === today ? (
             <>
-              Today, <em>at a glance.</em>
+              Today
             </>
           ) : (
             <>
-              Your <em>daily picture.</em>
+              Your food journal
             </>
           )}
         </h1>
-        <p className="lede">
+        {last && last.date < addDays(today, -2) && !entries.length && <p className="lede">
           {last && last.date < addDays(today, -2) && !entries.length
             ? "Welcome back. Your next meal is enough to begin again."
             : "Your food, your targets, your next step."}
-        </p>
+        </p>}
       </div>
       <div className="today-grid">
         <section className="card intake-card">
           <div className="section-top">
             <span className="small-label">
-              {date === today ? "DAILY INTAKE" : "DAILY INTAKE"}
+              DAILY INTAKE
             </span>
             <div className="date-nav">
               <button
@@ -257,7 +275,7 @@ export function TodayView({
             </div>
           </div>
           </div>
-          <div className="intake-caption" key={revision}>
+          <div className="intake-caption" key={sum.kcal}>
             {sum.kcal === 0
               ? "Ready when you are. Start with your next meal."
               : remain >= 0
@@ -280,6 +298,25 @@ export function TodayView({
               : "Partial picture · only logged food is shown"}
           </div>
         </section>
+      <section className="section-block meal-journal">
+        <div className="section-top">
+          <h2>Your meals</h2>
+          <span className="caption">
+            {entries.length} {entries.length === 1 ? "entry" : "entries"}
+          </span>
+        </div>
+        <Meals entries={entries} select={select} savedIds={savedIds} act={act} locked={locked} />
+        {entries.length > 0 && (
+          <button
+            className="text-link"
+            disabled={locked}
+            onClick={() => act({ type: "complete", date, complete: !done })}
+          >
+            {done ? "✓ Day complete · reopen" : "Finish logging this day"}
+          </button>
+        )}
+        {!!recent.length && <details className="repeat-meals"><summary>Have a usual? Repeat a recent meal</summary><p className="caption">Adds the same portions to {date === today ? "today" : shortDate(date)}. You can undo.</p>{recent.map(e => <button key={e.id} className="repeat-meal" disabled={locked} onClick={() => act({ type: "repeat", entryId: e.id, date })}><span><strong>{e.text}</strong><small>{n(itemTotals(e.items).kcal)} kcal · {shortDate(e.date)}</small></span><span>Log again ＋</span></button>)}</details>}
+      </section>
         <div className="today-aside">
           <section className="focus-card">
             <div className="section-top">
@@ -321,10 +358,11 @@ export function TodayView({
                 : "A practice, not a streak. Start whenever you're ready."}
             </span>
             <button
-              className="text-link"
-              onClick={() => prompt("I practiced my focus today.")}
+              className="text-link practice-action"
+              disabled={locked || days.has(today)}
+              onClick={() => p.coaching?.focus ? act({ type: "practice" }) : prompt("Help me choose one small focus for this week. ")}
             >
-              I tried it today <span>↗</span>
+              {days.has(today) ? "✓ Practiced today" : p.coaching?.focus ? "I tried it today" : "Choose my weekly focus"}
             </button>
           </section>
           <button
@@ -341,31 +379,7 @@ export function TodayView({
           </button>
         </div>
       </div>
-      <ProgressSummary state={s} today={today} prompt={prompt} compact />
-      <section className="section-block">
-        <div className="section-top">
-          <h2>Your meals</h2>
-          <span className="caption">
-            {entries.length} {entries.length === 1 ? "entry" : "entries"} · tap
-            to adjust
-          </span>
-        </div>
-        <Meals entries={entries} select={select} savedIds={savedIds} />
-        {entries.length > 0 && (
-          <button
-            className="text-link"
-            onClick={() =>
-              prompt(
-                done
-                  ? `Mark ${date} as incomplete.`
-                  : `I've finished logging all my food for ${date}.`,
-              )
-            }
-          >
-            {done ? "Reopen this day" : "That's everything for this day"} ↗
-          </button>
-        )}
-      </section>
+      <ProgressSummary state={s} today={today} prompt={prompt} compact onOpen={progress} />
       {!!s.memory.events.filter((e) => e.date >= today).length && (
         <section className="section-block">
           <h2>Coming up</h2>
@@ -407,7 +421,7 @@ export function PlanView({
       <div className="page-heading">
         <span className="eyebrow">BUILT AROUND YOU</span>
         <h1>
-          Your plan. <em>Your pace.</em>
+          Your plan
         </h1>
         <p className="lede">{c?.intention ?? p.copy.summary}</p>
       </div>
@@ -459,7 +473,7 @@ export function PlanView({
           <dl>
             <div>
               <dt>Starting weight</dt>
-              <dd>{weight(p.profile.weightKg, p.profile.unit, 1)}</dd>
+              <dd>{weight(p.startingWeightKg ?? p.profile.weightKg, p.profile.unit, 1)}</dd>
             </div>
             <div>
               <dt>Goal</dt>
@@ -586,7 +600,7 @@ export function ProgressView({
     from = addDays(today, 1 - range);
   const entries = s.entries.filter((e) => e.date >= from && e.date <= today),
     weights = s.weighIns.filter((w) => w.date >= from && w.date <= today);
-  const complete = s.completedDays.filter((d) => d >= from && d <= today),
+  const complete = completeFoodDays(s, from, today, !!s.plan?.demo),
     sum = totals(entries.filter((e) => complete.includes(e.date)));
   const practices = new Set(
     s.memory.practices
@@ -598,9 +612,9 @@ export function ProgressView({
       <div className="page-heading">
         <span className="eyebrow">THE BIGGER PICTURE</span>
         <h1>
-          Progress, <em>with perspective.</em>
+          Your progress
         </h1>
-        <p className="lede">See where you are. Know what to work on next.</p>
+        <p className="lede">Your direction and one useful next step.</p>
       </div>
       <ProgressSummary state={s} today={today} prompt={prompt} />
       <div className="section-top">

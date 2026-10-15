@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Provider, ProviderStatus, WeighIn } from "../../shared/types";
 import { checkKey, type Mode } from "../lib/api";
 import { PROVIDERS } from "../../shared/catalog";
@@ -15,6 +15,7 @@ interface Props {
   onClose: () => void;
   onReset: () => void;
   onDataChanged: () => void;
+  onConnected: () => void;
 }
 export function Settings({
   providers,
@@ -23,6 +24,7 @@ export function Settings({
   onClose,
   onReset,
   onDataChanged,
+  onConnected,
 }: Props) {
   const state = useStore();
   const active = state.settings.provider ?? serverDefault;
@@ -30,23 +32,33 @@ export function Settings({
     [key, setKey] = useState(state.settings.apiKeys[active] ?? ""),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
+    [connectionMessage, setConnectionMessage] = useState(""),
+    [connectionError, setConnectionError] = useState(""),
     [error, setError] = useState(""),
     [confirm, setConfirm] = useState(false),
     [weights, setWeights] = useState<HealthImport | null>(null),
     [canUndo, setCanUndo] = useState(false),
     [backup, setBackup] = useState<Data | null>(null);
   const healthFile = useRef<HTMLInputElement>(null),
-    backupFile = useRef<HTMLInputElement>(null);
+    backupFile = useRef<HTMLInputElement>(null),
+    feedback = useRef<HTMLDivElement>(null),
+    preview = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const target = weights || backup ? preview.current : message || error ? feedback.current : null;
+    target?.scrollIntoView({ block: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+  }, [weights, backup, message, error]);
   function choose(p: Provider) {
     setProvider(p);
     setKey(state.settings.apiKeys[p] ?? "");
     setMessage("");
     setError("");
+    setConnectionMessage("");
+    setConnectionError("");
   }
   async function saveKey() {
     setBusy(true);
-    setError("");
-    setMessage("");
+    setConnectionError("");
+    setConnectionMessage("");
     try {
       if (key.trim()) {
         const r = await checkKey(provider, key.trim());
@@ -56,13 +68,13 @@ export function Settings({
         provider,
         apiKeys: { ...state.settings.apiKeys, [provider]: key.trim() },
       });
-      setMessage(
+      setConnectionMessage(
         key.trim()
-          ? `${PROVIDERS[provider].label} is connected. You're ready.`
+          ? `${PROVIDERS[provider].label} accepted your key. Ready for your first message.`
           : "Key removed from this browser.",
       );
     } catch (e) {
-      setError(
+      setConnectionError(
         e instanceof Error ? e.message : "Could not connect. Try again.",
       );
     } finally {
@@ -222,6 +234,8 @@ export function Settings({
             {busy ? "Working…" : "Save connection"}
           </button>
         </div>
+        {connectionError && <p className="error" role="alert">{connectionError}</p>}
+        {connectionMessage && <div className="connection-success" role="status"><p>{connectionMessage}</p>{!!key.trim() && <button className="text-link" onClick={onConnected}>{!state.plan || state.plan.demo ? "Create my personal plan" : "Back to my coach"} ↗</button>}</div>}
         <p className="caption">
           {mode === "direct"
             ? "Messages, attached photos and relevant history go directly to your chosen AI provider."
@@ -293,7 +307,7 @@ export function Settings({
         />
       </section>
       {(weights || backup) && (
-        <div className="import-preview">
+        <div className="import-preview" ref={preview}>
           <span className="small-label">REVIEW IMPORT</span>
           {weights ? (
             <>
@@ -369,7 +383,7 @@ export function Settings({
           Undo last import
         </button>
       )}
-      {error && (
+      <div ref={feedback}>{error && (
         <p className="error" role="alert">
           {error}
         </p>
@@ -378,7 +392,7 @@ export function Settings({
         <p className="connection-success" role="status">
           {message}
         </p>
-      )}
+      )}</div>
       <div className="settings-bottom">
         {confirm ? (
           <>

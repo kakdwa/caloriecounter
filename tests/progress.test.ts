@@ -45,3 +45,18 @@ test("legacy plan dates cannot crash the progress view", () => {
   const r = progressSummary(emptyData(), { ...plan, createdAt: "" }, today);
   assert.equal(r.from, "2026-10-01"); assert.equal(r.rateKg, null);
 });
+
+test("empty completed days do not dilute averages or imply zero intake", () => {
+  const r = progressSummary({ ...emptyData(), completedDays: [today] }, plan, today);
+  assert.equal(r.completeDays, 0); assert.equal(r.averageKcal, null);
+});
+
+test("target revisions preserve the starting weight and exclude older food from new-target comparisons", () => {
+  const updatedPlan = { ...plan, startingWeightKg: 83, targetsChangedAt: "2026-10-12", profile: { ...plan.profile, weightKg: 82.5 } };
+  const data = { ...emptyData(), weighIns: weights, completedDays: ["2026-10-10", "2026-10-13"], entries: [10, 13].map(d => ({
+    id: String(d), date: `2026-10-${d}`, time: "", text: "Test day", items: [{ name: "Test", detail: "", kcal: d === 10 ? 1000 : 2200, proteinG: 150, carbsG: 250, fatG: 66 }],
+  })) };
+  const r = progressSummary(data, updatedPlan, today);
+  assert.equal(r.intakeFrom, "2026-10-12"); assert.equal(r.completeDays, 1); assert.equal(r.averageKcal, 2200);
+  assert.equal(r.goalProgress, progressSummary(data, plan, today).goalProgress);
+});

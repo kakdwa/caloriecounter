@@ -66,14 +66,14 @@ function safeUrl(value: unknown): value is string {
   } catch { return false; }
 }
 
-export async function researchNutrition(provider: Provider, apiKey: string, query: string, market: string): Promise<ResearchResult> {
+export async function researchNutrition(provider: Provider, apiKey: string, query: string, market: string, callerSignal?: AbortSignal): Promise<ResearchResult> {
   const url = provider === "deepseek" ? "https://api.deepseek.com/anthropic/v1/messages" : "https://api.anthropic.com/v1/messages";
   const headers: Record<string, string> = { "content-type": "application/json", "anthropic-version": "2023-06-01" };
   if (provider === "deepseek") headers.authorization = `Bearer ${apiKey}`;
   else { headers["x-api-key"] = apiKey; headers["anthropic-dangerous-direct-browser-access"] = "true"; }
   const messages: any[] = [{ role: "user", content: JSON.stringify({ foodQuery: query.slice(0, 600), market: market.slice(0, 100) }) }];
   const allBlocks: unknown[] = [];
-  const signal = AbortSignal.timeout(120000);
+  const signal = callerSignal ? AbortSignal.any([callerSignal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000);
   try {
     // A server tool can pause. Preserve all blocks (including encrypted content)
     // exactly on continuation; cap the whole lookup's duration and round count.
@@ -96,6 +96,7 @@ export async function researchNutrition(provider: Provider, apiKey: string, quer
     }
     return parseResearch(allBlocks);
   } catch {
+    callerSignal?.throwIfAborted();
     return { status: "unavailable", sources: [], findings: "Nutrition lookup could not connect or timed out. No facts were verified online." };
   }
 }

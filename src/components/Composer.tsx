@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import type { ImageInput } from "../../shared/types";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { CoachStage, ImageInput } from "../../shared/types";
+import { RequestActivity } from "./RequestActivity";
 import { useSpeech } from "../lib/speech";
 import { MicIcon, SendIcon } from "./Icons";
 export async function prepareImage(file: File): Promise<ImageInput> {
@@ -40,17 +41,45 @@ interface Props {
   onClear: () => void;
   demo: boolean;
   onSettings: () => void;
+  stage: CoachStage;
+  submitted: string;
+  onStop: () => void;
+  placeholder: string;
+  draftSaved: boolean;
+  error: string;
+  onDismissError: () => void;
+  children: ReactNode;
+  logDate: string | null;
+  onToday: () => void;
+  modalOpen: boolean;
 }
 export function Composer(p: Props) {
   const file = useRef<HTMLInputElement>(null),
+    shell = useRef<HTMLDivElement>(null),
+    input = useRef<HTMLTextAreaElement>(null),
     voicePrefix = useRef("");
   const [error, setError] = useState(""),
+    [focused, setFocused] = useState(false),
     [preparing, setPreparing] = useState(false);
+  const expanded = focused || !!p.text || !!p.images.length;
+  useLayoutEffect(() => {
+    if (!input.current) return;
+    input.current.style.height = "24px";
+    input.current.style.height = `${Math.min(120, input.current.scrollHeight)}px`;
+  }, [p.text, expanded, p.busy]);
+  useEffect(() => {
+    if (!shell.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      document.documentElement.style.setProperty("--dock-height", `${entry.target.getBoundingClientRect().height}px`);
+    });
+    observer.observe(shell.current);
+    return () => { observer.disconnect(); document.documentElement.style.removeProperty("--dock-height"); };
+  }, []);
   const speech = useSpeech((t) =>
     p.setText([voicePrefix.current, t].filter(Boolean).join(" ")),
   );
-  async function attach(files: FileList | null) {
-    if (!files) return;
+  async function attach(files: FileList | File[] | null) {
+    if (!files || preparing || p.busy) return;
     setError("");
     if (files.length + p.images.length > 2) {
       setError("Use up to two photos in one message.");
@@ -75,8 +104,10 @@ export function Composer(p: Props) {
     p.onSend();
   }
   return (
-    <div className="composer-shell">
+    <div className="composer-shell" ref={shell} inert={p.modalOpen}>
       <div className="composer-inner">
+        {p.children}
+        {p.logDate && <div className="context-chip"><span>Logging food for {p.logDate}</span><button disabled={p.busy} onClick={p.onToday}>Today</button></div>}
         {p.selected && (
           <div className="context-chip">
             <span>Editing · {p.selected}</span>
@@ -85,18 +116,27 @@ export function Composer(p: Props) {
             </button>
           </div>
         )}
-        {(error || speech.error) && (
+        {(p.error || error || speech.error) && (
           <div className="composer-error" role="alert">
-            {error || speech.error}
+            <span>{p.error || error || speech.error}</span>
+            {!!(p.error || error) && <button aria-label="Dismiss error" onClick={() => { setError(""); p.onDismissError(); }}>×</button>}
           </div>
         )}
+        {!p.draftSaved && <div className="composer-error" role="status">Draft storage is full. Keep this tab open until you’ve saved your changes.</div>}
         <form
-          className={`composer ${speech.listening ? "is-listening" : ""} ${p.busy ? "is-working" : ""} ${p.text.trim() || p.images.length ? "has-input" : ""}`}
+          className={`composer ${expanded ? "expanded" : "compact"} ${speech.listening ? "is-listening" : ""} ${p.busy ? "is-working" : ""} ${p.text.trim() || p.images.length ? "has-input" : ""}`}
+          onFocusCapture={() => setFocused(true)}
+          onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
+          onPaste={e => {
+            const photos = Array.from(e.clipboardData.files).filter(f => f.type.startsWith("image/"));
+            if (photos.length) { e.preventDefault(); void attach(photos); }
+          }}
           onSubmit={(e) => {
             e.preventDefault();
             send();
           }}
         >
+          {p.busy && <RequestActivity stage={p.stage} input={p.submitted} onStop={p.onStop} />}
           {!!p.images.length && (
             <div className="attachments">
               {p.images.map((im, i) => (
@@ -121,13 +161,14 @@ export function Composer(p: Props) {
           )}
           <textarea
             id="coach-input"
+            ref={input}
             aria-label="Tell your coach"
             placeholder={
               speech.listening
                 ? "Listening…"
-                : "What did you eat? Or ask me anything…"
+                : p.placeholder
             }
-            rows={2}
+            rows={1}
             value={p.text}
             maxLength={12000}
             disabled={p.busy}
@@ -167,7 +208,7 @@ export function Composer(p: Props) {
                   <circle cx="12" cy="13" r="4" />
                 </svg>
               </button>
-              <button
+              {speech.supported && <button
                 className={`tool ${speech.listening ? "recording" : ""}`}
                 type="button"
                 aria-label={
@@ -181,13 +222,13 @@ export function Composer(p: Props) {
                 }}
               >
                 <MicIcon />
-              </button>
+              </button>}
               <span className="microcopy">
                 {preparing
                   ? "Preparing photo…"
                   : speech.listening
                     ? "Listening · tap to stop"
-                    : "Text, voice or photo"}
+                    : speech.supported ? "Text, voice or photo" : "Text, photo or keyboard dictation"}
               </span>
             </div>
             <button
@@ -210,15 +251,7 @@ export function Composer(p: Props) {
             onChange={(e) => void attach(e.target.files)}
           />
         </form>
-        <div className="dock-caption">
-          {p.demo ? (
-            <button onClick={p.onSettings}>
-              Sample mode · connect DeepSeek to make it yours ↗
-            </button>
-          ) : (
-            "Web sources when available. Always yours to review."
-          )}
-        </div>
+        {expanded && !p.busy && <div className="dock-caption">{p.demo ? "Fictional sample · connect your AI in settings" : "Review before saving · draft kept in this tab"}</div>}
       </div>
     </div>
   );

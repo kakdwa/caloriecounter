@@ -4,6 +4,11 @@ const day = (s: string) => Date.parse(s + "T12:00:00Z") / 86400000;
 const iso = (n: number) => new Date(n * 86400000).toISOString().slice(0, 10);
 const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
 
+export function completeFoodDays(data: Pick<CoachContext, "entries" | "completedDays">, from: string, to: string, demo = false) {
+  const recorded = new Set(data.entries.filter(e => e.items.length && (demo || !e.demo)).map(e => e.date));
+  return [...new Set(data.completedDays ?? [])].filter(d => d >= from && d <= to && recorded.has(d));
+}
+
 export function progressSummary(data: Pick<CoachContext, "entries" | "weighIns" | "completedDays">, plan: Plan, today: string) {
   const now = day(today), created = day(plan.createdAt.slice(0, 10));
   const start = Math.max(now - 13, Number.isFinite(created) ? Math.min(created, now) : now - 13);
@@ -13,14 +18,17 @@ export function progressSummary(data: Pick<CoachContext, "entries" | "weighIns" 
   const fresh = !!recent.length && day(recent.at(-1)!.date) >= now - 3;
   const enough = recent.length >= 3 && previous.length >= 3 && fresh;
   const rateKg = enough ? (recentAverage! - previousAverage!) * 7 / (mean(recent.map(w => day(w.date)))! - mean(previous.map(w => day(w.date)))!) : null;
-  const complete = [...new Set(data.completedDays ?? [])].filter(d => day(d) >= start && d <= today);
+  const changed = plan.targetsChangedAt ? day(plan.targetsChangedAt) : start;
+  const intakeFrom = iso(Math.max(start, Number.isFinite(changed) ? changed : start));
+  const complete = completeFoodDays(data, intakeFrom, today, !!plan.demo);
   const foods = data.entries.filter(e => complete.includes(e.date) && (!e.demo || plan.demo)).flatMap(e => e.items);
   const averageKcal = complete.length ? foods.reduce((n, i) => n + i.kcal, 0) / complete.length : null;
   const averageProtein = complete.length ? foods.reduce((n, i) => n + i.proteinG, 0) / complete.length : null;
   const target = plan.profile.goalWeightKg;
+  const startingWeight = plan.startingWeightKg ?? plan.profile.weightKg;
   const current = recent.length >= 3 && fresh ? recentAverage : null;
-  const goalProgress = target != null && target !== plan.profile.weightKg && current != null
-    ? Math.max(0, Math.min(1, (current - plan.profile.weightKg) / (target - plan.profile.weightKg))) : null;
+  const goalProgress = plan.profile.goal !== "maintain" && target != null && target !== startingWeight && current != null
+    ? Math.max(0, Math.min(1, (current - startingWeight) / (target - startingWeight))) : null;
   const intendedRate = plan.targets.weeklyRateKg;
   const faster = rateKg != null && intendedRate !== 0 && rateKg * intendedRate > 0 && Math.abs(rateKg) > Math.abs(intendedRate) * 1.5;
   const toward = rateKg != null && (plan.profile.goal === "lose" ? rateKg < -.1 : plan.profile.goal === "gain" ? rateKg > .1 : Math.abs(rateKg) <= .1);
@@ -31,5 +39,5 @@ export function progressSummary(data: Pick<CoachContext, "entries" | "weighIns" 
   else if (averageProtein! < plan.targets.proteinG * .9) next = { title: "Make your protein target easier", detail: `Complete days average ${Math.round(averageProtein!)}g against your ${plan.targets.proteinG}g starting target. Find a simple meal adjustment that suits your preferences.`, prompt: "Help me reach my protein target with one easy change to foods I already enjoy." };
   else if (!enough) next = { title: "Give the trend more context", detail: "A few readings across each week help separate a trend from a single day's fluctuation. If weighing feels useful, use similar conditions each time.", prompt: "Help me understand my weight readings and choose a comfortable way to track progress." };
   else if (!toward && plan.profile.goal !== "maintain") next = { title: "Review what makes the plan difficult", detail: "This short trend isn't moving toward your weight goal. Review portions, routine, hunger and recent changes together before adjusting anything.", prompt: "My recent weight trend isn't moving toward my goal. Review my complete logs and routine, explain what we can and can't conclude, and suggest one practical change for my approval." };
-  return { from: iso(start), to: today, recentAverage: current, previousAverage: enough ? previousAverage : null, recentCount: recent.length, previousCount: previous.length, rateKg, intendedRate, status, goalProgress, completeDays: complete.length, averageKcal, averageProtein, faster, next };
+  return { from: iso(start), intakeFrom, to: today, recentAverage: current, previousAverage: enough ? previousAverage : null, recentCount: recent.length, previousCount: previous.length, rateKg, intendedRate, status, goalProgress, completeDays: complete.length, averageKcal, averageProtein, faster, next };
 }

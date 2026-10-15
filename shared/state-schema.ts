@@ -5,9 +5,14 @@ import {
   CoachingSchema,
   FoodSchema,
   BodyMetricsSchema,
+  CoachSchema,
+  ImageSchema,
 } from "./coach";
+import { SourceSchema } from "./research";
 const bounded = z.number().finite().min(0).max(20000);
 export const PlanSchema = z.object({
+  startingWeightKg: z.number().min(20).max(400).optional(),
+  targetsChangedAt: date.optional(),
   profile: ProfileSchema.extend({
     age: z.number().int().min(18).max(120),
     heightCm: z.number().min(80).max(250),
@@ -77,4 +82,20 @@ export const DataSchema = z.object({
 export const BackupSchema = z.object({
   version: z.literal(2),
   data: DataSchema,
+});
+
+export const CoachUpdateSchema = CoachSchema.omit({
+  profile: true, coaching: true, requiresProfessionalSupport: true, nutritionLookup: true,
+}).extend({
+  plan: PlanSchema.nullable(), demo: z.boolean(),
+  meals: z.array(z.object({ operation: z.enum(["add", "replace", "remove"]),
+    entryId: z.string().nullable(), date, label: z.string().max(12000), items: z.array(FoodSchema).max(100) })).max(10),
+  research: z.object({ status: z.enum(["found", "no_results", "unavailable"]),
+    sources: z.array(SourceSchema).max(12), note: z.string().max(2000) }).optional(),
+});
+
+export const DraftSchema = z.object({
+  logDate: date.optional(),
+  text: z.string().max(12000), images: z.array(ImageSchema).max(2),
+  selectedId: z.string().nullable(), update: CoachUpdateSchema.nullable(),
 });

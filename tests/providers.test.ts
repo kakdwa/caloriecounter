@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { z } from "zod";
 import { makeClient } from "../shared/providers";
 import { PROVIDERS } from "../shared/catalog";
+import { researchNutrition } from "../shared/research";
 test("DeepSeek sends text and image content with schema, validates response", async () => {
   const original = globalThis.fetch;
   let body: any;
@@ -36,6 +37,28 @@ test("DeepSeek sends text and image content with schema, validates response", as
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test("stopping aborts generation and research instead of turning cancellation into an estimate", async () => {
+  const original = globalThis.fetch;
+  let received: AbortSignal | undefined;
+  globalThis.fetch = async (_input, init) => {
+    received = init?.signal as AbortSignal;
+    return new Promise<Response>((_resolve, reject) => {
+      received!.addEventListener("abort", () => reject(received!.reason), { once: true });
+    });
+  };
+  try {
+    for (const type of ["generation", "research"]) {
+      const controller = new AbortController();
+      const pending = type === "generation"
+        ? makeClient("deepseek", "test-only", controller.signal).json({ schema: z.object({ ok: z.boolean() }), system: "", user: "", effort: "low" })
+        : researchNutrition("deepseek", "test-only", "burger", "US", controller.signal);
+      controller.abort();
+      await assert.rejects(pending, { name: "AbortError" });
+      assert.equal(received?.aborted, true);
+    }
+  } finally { globalThis.fetch = original; }
 });
 test("provider failures produce readable errors and no invented answers", async () => {
   const original = globalThis.fetch;

@@ -238,6 +238,9 @@ export function resolveDraft(
     out.plan = {
       profile,
       targets,
+      startingWeightKg: context.plan?.startingWeightKg ?? context.plan?.profile.weightKg ?? profile.weightKg,
+      targetsChangedAt: !context.plan || (["calories", "proteinG", "carbsG", "fatG"] as const).some(k => targets[k] !== context.plan!.targets[k])
+        ? context.today : context.plan.targetsChangedAt,
       createdAt: context.plan?.createdAt ?? new Date().toISOString(),
       demo,
       coaching: d.coaching ?? context.plan?.coaching,
@@ -307,7 +310,7 @@ export async function runCoach(
     images: input.images,
     system: `You are a calm, practical nutrition planning assistant. Turn freeform text, speech transcripts and images into structured output. Never return a chat essay.
 The output is a PROPOSAL the user will review before saving. Understand all intents in a mixed message regardless of the visible screen.
-Use the user's local date from context. Infer dates carefully; clarify ambiguity. Future meals belong in events or options, NEVER meals eaten.
+Use the user's local date from context. For a new meal without an explicit date, use context.logDate (the day visibly selected in the journal), or context.today if absent. Explicit dates in the user's message override logDate. Existing meal corrections preserve their date unless the user asks to move them. Weigh-ins and events use their explicitly reported dates or today, not logDate. Infer dates carefully; clarify ambiguity. Future meals belong in events or options, NEVER meals eaten.
 Never log a menu, grocery photo or recipe as eaten. An image alone requires asking whether it was eaten or is for planning. For restaurant, chain, branded products or any request for official/online nutrition: set nutritionLookup with a concise FOOD-ONLY query and the country/market explicitly given by the user or known from their history. Include exact sizes, modifications and quantities. Exclude personal details (weight, goals, age, health) from the query. Never guess country from language or timezone; set market null if unknown. Ask about missing sizes or which food was eaten before looking up. For generic food web research, market may be "Not region-specific". For other tasks nutritionLookup is null. Do not claim to have searched in this initial response. Nutrition will be researched in a separate step.
 When provided with nutritionResearch, do NOT request another lookup. Use only source IDs from that evidence. Set each food's citationIds and sourceMatch (market copied exactly from the nutrition lookup request, serving including quantity, fields actually supported by sources) only for matching foods. Check correct country, product, size, per-serving vs per-100g and kcal vs kJ. Quantities can scale source values; explain the multiplication in detail. Customizations not covered by a source remain estimates. Missing nutrients remain estimates and MUST be excluded from sourceMatch.fields. Prefer official sources over aggregators; clearly identify outdated or unofficial sources. No retrieved evidence means no citationIds/sourceMatch. Never invent links. Every food without supporting evidence is an estimate; state assumptions in detail. Never imply precise image measurement. Never invent foods from an unreadable image.
 For plan creation or explicit target changes, profile is the complete new profile in kg/cm. Leave unknown age, weight or height null and ask ONE short question. Preserve explicitly known fields from history and the existing plan. Missing sex is unspecified; missing activity must be clarified. Do not set calorie targets yourself. Age under 18, pregnancy/breastfeeding, eating-disorder concerns or medical nutrition needs require professional support; set requiresProfessionalSupport.
@@ -623,7 +626,7 @@ function demoDraft(
       {
         operation: "add",
         entryId: null,
-        date: c.today,
+        date: /\btoday\b/.test(t) ? c.today : c.logDate ?? c.today,
         label: "Eggs on toast",
         items: [
           {

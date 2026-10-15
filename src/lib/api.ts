@@ -99,24 +99,27 @@ export async function checkKey(provider: Provider, apiKey: string): Promise<{ ok
 }
 
 
-export async function sendToCoach(text: string, images: import("../../shared/types").ImageInput[], context: import("../../shared/types").CoachContext, onStage?: (stage: import("../../shared/types").CoachStage) => void): Promise<import("../../shared/types").CoachUpdate> {
+export async function sendToCoach(text: string, images: import("../../shared/types").ImageInput[], context: import("../../shared/types").CoachContext, onStage?: (stage: import("../../shared/types").CoachStage) => void, signal?: AbortSignal): Promise<import("../../shared/types").CoachUpdate> {
   const info = await getProviders();
+  signal?.throwIfAborted();
   const c = chosen(info);
-  if (info.mode === "server") return streamCoach({ text, images, context, ...c }, onStage);
+  if (info.mode === "server") return streamCoach({ text, images, context, ...c }, onStage, signal);
   try {
     const [providers, coach] = await Promise.all([import("../../shared/providers"), import("../../shared/coach")]);
-    return await coach.runCoach(providers.makeClient(c.provider, c.apiKey), { text, images }, context, onStage);
+    signal?.throwIfAborted();
+    return await coach.runCoach(providers.makeClient(c.provider, c.apiKey, signal), { text, images }, context, onStage);
   } catch (e) {
+    signal?.throwIfAborted();
     const message = e instanceof Error ? e.message : "I could not finish that. Please try again.";
     if (/dynamically imported|module script|Importing a module/i.test(message)) throw new ApiError("The app has been updated. Copy any unsent message, then reload this page. Your saved records are safe.");
     throw new ApiError(message);
   }
 }
 
-async function streamCoach(body: unknown, onStage?: (stage: import("../../shared/types").CoachStage) => void): Promise<import("../../shared/types").CoachUpdate> {
+async function streamCoach(body: unknown, onStage?: (stage: import("../../shared/types").CoachStage) => void, signal?: AbortSignal): Promise<import("../../shared/types").CoachUpdate> {
   let res: Response;
-  try { res = await fetch("api/coach", { method: "POST", headers: { "content-type": "application/json", accept: "application/x-ndjson" }, body: JSON.stringify(body), signal: AbortSignal.timeout(270000) });
-  } catch { throw new ApiError("Could not reach your coach or the request timed out. Your message is still here to retry."); }
+  try { res = await fetch("api/coach", { method: "POST", headers: { "content-type": "application/json", accept: "application/x-ndjson" }, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(270000)]) : AbortSignal.timeout(270000) });
+  } catch { signal?.throwIfAborted(); throw new ApiError("Could not reach your coach or the request timed out. Your message is still here to retry."); }
   if (!res.ok) {
     const failure = await res.json().catch(() => ({}));
     throw new ApiError(failure.error ?? "Could not reach your coach. Try again.");

@@ -5,6 +5,7 @@ import {
   CoachingSchema,
   FoodSchema,
   BodyMetricsSchema,
+  RecoverySchema,
   CoachSchema,
   ImageSchema,
 } from "./coach";
@@ -64,6 +65,7 @@ export const MemorySchema = z.object({
   practices: z.array(z.object({ date, focus: z.string().max(2000) })),
 });
 export const DataSchema = z.object({
+  recovery: z.array(RecoverySchema).max(20000).default([]),
   bodyMetrics: z.array(BodyMetricsSchema).max(20000).default([]),
   plan: PlanSchema.nullable(),
   entries: z.array(EntrySchema).max(50000),
@@ -88,6 +90,7 @@ export const CoachUpdateSchema = CoachSchema.omit({
   profile: true, coaching: true, requiresProfessionalSupport: true, nutritionLookup: true,
 }).extend({
   plan: PlanSchema.nullable(), demo: z.boolean(),
+  removedPractices: z.array(z.object({ date, focus: z.string().max(2000) })).max(10).optional(),
   meals: z.array(z.object({ operation: z.enum(["add", "replace", "remove"]),
     entryId: z.string().nullable(), date, label: z.string().max(12000), items: z.array(FoodSchema).max(100) })).max(10),
   research: z.object({ status: z.enum(["found", "no_results", "unavailable"]),

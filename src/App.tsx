@@ -15,9 +15,13 @@ import {
   type View,
 } from "./screens/Workspace";
 import { Settings } from "./screens/Settings";
-import { GearIcon } from "./components/Icons";
+import { GearIcon, CheckIcon } from "./components/Icons";
+import { startNutritionSync } from "./lib/nutrition-sync";
+import { ViewTransition, Presence, PressFeedback } from "./components/Motion";
+import { TodayIcon, TargetIcon, ChartIcon } from "./components/Icons";
 export default function App() {
   const state = useStore();
+  useEffect(startNutritionSync, []);
   const [draft] = useState(() => { try { return readDraft(sessionStorage); } catch { return emptyDraft(); } });
   const route = () => (["plan", "progress"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "today") as View;
   const [view, changeView] = useState<View>(route),
@@ -33,15 +37,25 @@ export default function App() {
     [today, setToday] = useState(localDate()),
     [date, setDate] = useState(draft.logDate ?? localDate());
   const [stage, setStage] = useState<CoachStage>("understanding");
+  const [settingsArea, setSettingsArea] = useState<"ai" | "health" | "data">("ai");
   const [submitted, setSubmitted] = useState("");
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [revision, setRevision] = useState(0);
   const [undoAvailable, setUndoAvailable] = useState(false);
   const [draftSaved, setDraftSaved] = useState(true);
+  useEffect(() => {
+    if (!savedIds.length) return;
+    const timer = setTimeout(() => setSavedIds([]), 1400);
+    return () => clearTimeout(timer);
+  }, [savedIds]);
   const review = useRef<HTMLDivElement>(null),
     request = useRef<AbortController | null>(null);
   const previousToday = useRef(today);
   const smooth = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" as const : "smooth" as const;
+  function openSettings(area: "ai" | "health" | "data" = "ai") {
+    setSettingsArea(area);
+    setSettingsOpen(true);
+  }
   function setView(next: View) {
     if (next !== view) history.pushState(null, "", `#${next}`);
     changeView(next);
@@ -116,6 +130,7 @@ export default function App() {
         today,
         logDate: date,
         bodyMetrics: current.bodyMetrics.slice(-90),
+        recovery: current.recovery.slice(-90),
         plan: current.plan,
         entries,
         weighIns: current.weighIns.slice(-60),
@@ -180,7 +195,7 @@ export default function App() {
       setSavedIds(store.get().entries.filter(e => !before.some(b => b.id === e.id)).map(e => e.id));
       setRevision(v => v + 1);
       setUndoAvailable(true);
-      setToast(action.type === "practice" ? "Practice recorded. A small step counts."
+      setToast(action.type === "practice" ? action.complete === false ? "Practice unchecked." : "Practice recorded. A small step counts."
         : action.type === "complete" ? action.complete ? "Day complete. Included in your progress review." : "Day reopened."
         : action.type === "repeat" ? "Meal added with the same portions." : "Meal removed.");
       setError("");
@@ -198,12 +213,14 @@ export default function App() {
       setToast(
         update.plan
           ? "Plan saved. Your daily targets are ready."
-          : "Saved. Your dashboard is up to date.",
+          : update.recovery?.length || update.bodyMetrics?.length
+            ? "Check-in saved. Your progress has been updated."
+            : "Saved. Your dashboard is up to date.",
       );
       setUpdate(null);
       setSelected(null);
       if (update.plan) setView("plan");
-      else if ((update.weighIns.length || update.bodyMetrics?.length) && !update.meals.length)
+      else if ((update.weighIns.length || update.bodyMetrics?.length || update.recovery?.length) && !update.meals.length)
         setView("progress");
       else if (update.meals.length) { setView("today"); setDate(update.meals[0].date); }
       window.scrollTo({ top: 0, behavior: smooth() });
@@ -220,7 +237,8 @@ export default function App() {
   }
   return (
     <>
-      <div className="app-shell" inert={settingsOpen}>
+      <PressFeedback />
+      <div className={`app-shell ${state.plan ? "has-plan" : ""}`} inert={settingsOpen}>
         <header className="app-header">
           <button
             className="brand"
@@ -228,7 +246,7 @@ export default function App() {
             aria-label="Calorie home"
           >
             <span className="brand-mark" aria-hidden="true">
-              <svg viewBox="0 0 32 32" width="32" height="32" fill="none"><path d="M24 8a11.3 11.3 0 1 0 0 16" stroke="currentColor" strokeWidth="5" strokeLinecap="round"/><circle cx="24" cy="16" r="3" fill="currentColor"/></svg>
+              <svg viewBox="0 0 32 32" width="32" height="32" fill="none"><path d="M24 8a11.3 11.3 0 1 0 0 16" stroke="currentColor" strokeWidth="6"/><rect x="22" y="12" width="8" height="8" fill="var(--red)"/></svg>
             </span>
             calorie<span className="brand-subtitle">Nutrition, made personal</span>
           </button>
@@ -245,7 +263,7 @@ export default function App() {
               className="icon-btn"
               aria-label="Settings"
               disabled={busy}
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => openSettings()}
             >
               <GearIcon />
             </button>
@@ -261,6 +279,7 @@ export default function App() {
                 className={view === v ? "active" : ""}
                 onClick={() => setView(v)}
               >
+                {v === "today" ? <TodayIcon /> : v === "plan" ? <TargetIcon /> : <ChartIcon />}
                 {v === "today"
                   ? "Today"
                   : v === "plan"
@@ -274,7 +293,7 @@ export default function App() {
           {state.plan?.demo && (
             <div className="sample-banner">
               Fictional sample plan
-              <button onClick={() => setSettingsOpen(true)}>
+              <button onClick={() => openSettings()}>
                 Make it yours ↗
               </button>
             </div>
@@ -285,7 +304,7 @@ export default function App() {
             </div>
           )}
           <div ref={review} className="review-anchor" aria-busy={busy} tabIndex={-1}>
-            {update && (
+            <Presence show={!!update}>{update && (
               <Proposal
                 key={JSON.stringify(update)}
                 update={update}
@@ -297,18 +316,18 @@ export default function App() {
                 }}
                 onPrompt={prompt}
               />
-            )}
+            )}</Presence>
           </div>
           {!state.plan ? (
             <Welcome
               demo={demo}
-              connect={() => setSettingsOpen(true)}
+              connect={() => openSettings()}
               prompt={(v) =>
                 v === "Explore the sample plan" ? void send(v) : prompt(v)
               }
             />
           ) : (
-            <div key={view} className="view-enter">
+            <ViewTransition view={view}>
               {view === "today" ? (
                 <TodayView
                   state={state}
@@ -330,10 +349,10 @@ export default function App() {
                   state={state}
                   today={today}
                   prompt={prompt}
-                  health={() => setSettingsOpen(true)}
+                  health={() => openSettings("health")}
                 />
               )}
-            </div>
+            </ViewTransition>
           )}
         </main>
       </div>
@@ -347,7 +366,7 @@ export default function App() {
         selected={selected?.text ?? null}
         onClear={() => setSelected(null)}
         demo={demo}
-        onSettings={() => setSettingsOpen(true)}
+        onSettings={() => openSettings()}
         stage={stage}
         submitted={submitted}
         onStop={stop}
@@ -360,18 +379,19 @@ export default function App() {
         onDismissError={() => setError("")}
       >
         <div role="status" aria-live="polite">
-          {toast && <div className="toast" key={revision}>
-            <span className="success-check" aria-hidden="true">✓</span><span>{toast}</span>
+          <Presence show={!!toast}><div className="toast" key={revision}>
+            <span className="success-check" aria-hidden="true"><CheckIcon /></span><span>{toast}</span>
             {undoAvailable && <button onClick={() => {
               try { store.undo(); setToast(""); setSavedIds([]); setUndoAvailable(false); }
               catch (e) { setError(String(e)); }
             }}>Undo</button>}
             <button aria-label="Dismiss saved message" onClick={() => setToast("")}>×</button>
-          </div>}
+          </div></Presence>
         </div>
       </Composer>
       {settingsOpen && (
         <Settings
+          initialArea={settingsArea}
           providers={info?.providers ?? null}
           serverDefault={info?.default ?? "deepseek"}
           mode={info?.mode ?? "direct"}
@@ -394,7 +414,6 @@ export default function App() {
             setToast("");
             setError("");
             setView("today");
-            setSettingsOpen(false);
           }}
         />
       )}

@@ -23,6 +23,7 @@ On iPhone, Safari → Share → Add to Home Screen gives a standalone window. Vo
 - Weight, BMI, body fat percentage, and lean body mass charts, using actual measurement dates. Body composition may be recorded independently of weight.
 - Weekly reviews and reflections, practical adaptations, nonpunitive return after a gap, and practice recognition without deficit rewards or broken streaks.
 - Local Apple Health XML import, preview, merge and undo; JSON backup and validated restore. API keys are excluded from backups.
+- Daily nutrition JSON in Health Auto Export's metrics shape or an Apple Shortcuts-friendly shape. Optional authenticated server sync sends only daily totals, with a finished-day check and explicit time zone.
 - Neutral surfaces, Inter sans-serif typography, a single blue accent and an 8px spacing rhythm. Animated intake totals, progress meters, navigation, photo attachments and saved-meal highlights; reduced-motion support.
 - Nutrition web research through the selected provider, with source-linked nutrients, country and serving information, retrieval dates, and explicit estimate fallbacks.
 - A fat-loss plan explanation and progress check-in: planned versus observed weight pace, weight-goal progress, complete-day intake/protein comparisons, and one practical next step. Weight change is never labeled as confirmed fat loss.
@@ -33,7 +34,7 @@ In Health, open your profile → Export All Health Data. Unzip the download in F
 
 The importer streams the file locally and reads only BodyMass, BodyMassIndex, BodyFatPercentage, and LeanBodyMass. It keeps the latest reading for each metric on each recorded local date, converts pounds to kilograms, and converts HealthKit percentage fractions (`0.235`) to displayed percentages (`23.5%`). Body-only dates are retained. Imported values replace matching date/metric values; other records remain. The scale's app must first write these metrics to Apple Health.
 
-**Automatic sync is not implemented in the browser app.** It requires a native iPhone app with HealthKit entitlements and user authorization. No HealthKit connection or permission is implied by importing a file.
+**Direct HealthKit sync is not implemented in the browser app.** It requires a native iPhone app with HealthKit entitlements and user authorization. Nutrition can instead be written by an iPhone Shortcut using the daily JSON export described below. No HealthKit connection or permission is implied by importing or downloading a file.
 
 Body fat and lean mass from consumer scales are estimates. The app does not infer them from photos, infer muscle gain from lean-mass fluctuations, or automatically adjust calorie targets based on a reading.
 
@@ -42,6 +43,8 @@ References: [Apple Health export](https://support.apple.com/en-ca/guide/iphone/i
 ## Privacy and persistence
 
 Records and API keys are saved in this browser's local storage. They are not encrypted by the app and do not sync automatically between devices. Export backups before clearing browser storage.
+
+If you explicitly connect a nutrition server, daily calorie/macro totals, food-log dates, meal counts, completion flags and the chosen time zone are copied to that server while the app is open. Meal names, descriptions, body measurements, AI keys and coaching history are excluded. The nutrition access token stays in separate browser storage and is excluded from backups. Disconnecting stops future uploads but retains previously synced server data. This is a single-source export, not a multi-device backup or conflict-resolution service.
 
 On GitHub Pages, requests go directly to the selected AI provider. With the optional local server, requests pass through that server. Requests include your current message, attached photos, plan, recent meals/measurements, and relevant coaching history. The full Health export is never uploaded; imported measurements may be included in later coaching context. Browser speech recognition may use the browser vendor's speech service.
 
@@ -68,6 +71,81 @@ npm start
 ```
 
 Every push to `main` runs tests and builds with the repository's Pages base path, then publishes through `.github/workflows/pages.yml`.
+
+## Daily nutrition → Apple Health
+
+Health Auto Export's [REST API automation](https://help.healthyapps.dev/en/health-auto-export/automations/rest-api/) sends data **from Apple Health to a server**. Its documentation does not describe consuming a JSON response and importing it into Health. Returning its JSON shape does not reverse that direction. Use an iPhone Shortcut with **Log Health Sample** to write the four supported nutrition values.
+
+### Without a backend (works on GitHub Pages)
+
+1. Finish a food-log day in Today.
+2. Open Settings → Nutrition → Apple Health. Select that date, confirm the time zone and choose **Apple Shortcuts**.
+3. Download daily nutrition. On iPhone, save the JSON in Files and select it in your Shortcut.
+
+The alternative **Health Auto Export format** follows its documented [`data.metrics` structure](https://help.healthyapps.dev/en/health-auto-export/export-format/health-metrics/) and [supported nutrition metric names](https://help.healthyapps.dev/en/health-auto-export/getting-started/supported-data/). It is useful for consumers of that format; it is not a Health Auto Export import feature. Sample meals never leave the app through either export. Missing food is not exported as zero intake. Only calories, protein, carbohydrates and total fat are supported; other nutrients are not inferred.
+
+### Run the private backend
+
+GitHub Pages serves static files and cannot execute these routes. Run the existing Node server on a reachable host with a persistent disk. One server/token holds one person's daily totals. Use a single process and one source browser; separate browsers can otherwise replace each other's snapshots. This is not an account system.
+
+1. Generate a token with `openssl rand -hex 32` and put it in the server's `NUTRITION_SYNC_TOKEN` environment variable. Never put it in a `VITE_` variable or a URL.
+2. Set `NUTRITION_DATA_FILE` to a private file on the host's persistent disk (default `./data/nutrition.json`, ignored by Git). Data is saved atomically with owner-only file permissions, not encrypted by this app. The directory must be outside the public `dist` folder.
+3. Set `NUTRITION_ALLOWED_ORIGINS=https://kakdwa.github.io` to allow the Pages frontend. Multiple exact origins can be comma-separated; no path or trailing slash. Native Shortcuts does not need CORS.
+4. Build and run: `npm run build` then `npm start`. Use HTTPS for a public backend. For a same-Wi-Fi experiment, serve the app from the Mac too and use its LAN address; `localhost` on an iPhone means the iPhone, not the Mac. An HTTPS Pages page cannot connect to a plain-HTTP Mac backend.
+5. In the app, open **Connect a nutrition server**, enter the server's base address (without `/api/nutrition`), the token and the food-log time zone, then tap **Connect & sync totals**. The app validates the connection before saving it. Only daily totals are uploaded.
+
+The app serializes uploads, retries failed syncs while open and replaces the server snapshot after edits, removals and Undo. It cannot sync a closed browser. Check the last-sync time before importing. Clearing the journal while connected clears its server copy on the next sync. Disconnecting leaves the last server copy intact; delete it with `DELETE /api/nutrition/snapshot`, or remove the private file. Rotate the server token to revoke existing clients.
+
+### Routes
+
+All routes require `Authorization: Bearer YOUR_NUTRITION_TOKEN` and return `Cache-Control: no-store`. Routes are disabled with HTTP 503 when the token is missing or shorter than 32 characters.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/api/nutrition/status` | Validate the connection; return last-sync timestamp and day count. |
+| PUT | `/api/nutrition/snapshot` | Replace all daily totals with the validated snapshot from the app. |
+| GET | `/api/nutrition/daily?date=2026-10-18` | Return one finished day's Health Auto Export-style JSON. |
+| GET | `/api/nutrition/daily?date=yesterday&format=shortcuts` | Return a day in the simple iPhone Shortcut format. |
+| DELETE | `/api/nutrition/snapshot` | Remove the server copy, without changing the browser or Apple Health. Disconnect browser sync first. |
+
+`date` accepts a real `YYYY-MM-DD`, `today` (default) or `yesterday`, resolved in the snapshot's IANA time zone, not the server's zone. `format` accepts `health-auto-export` (default) or `shortcuts`. Missing data returns 404; unfinished days return 409. `includeIncomplete=true` is an explicit diagnostic override, not recommended for Health imports. Invalid input returns 400; wrong tokens 401; disallowed browser origins 403; oversized snapshots 413. There are no token query parameters or unauthenticated health-data URLs.
+
+Example GET response in the default format (illustrative values):
+
+```json
+{"data":{"metrics":[
+  {"name":"dietary_energy","units":"kcal","data":[{"date":"2026-10-18 12:00:00 +0800","qty":1800}]},
+  {"name":"protein","units":"g","data":[{"date":"2026-10-18 12:00:00 +0800","qty":130}]},
+  {"name":"carbohydrates","units":"g","data":[{"date":"2026-10-18 12:00:00 +0800","qty":185}]},
+  {"name":"total_fat","units":"g","data":[{"date":"2026-10-18 12:00:00 +0800","qty":60}]}
+]}}
+```
+
+The Shortcut format contains `version`, `source`, `date`, `timeZone`, `sampleDate` (ISO 8601), `complete`, `mealCount`, `syncedAt`, `syncId`, `revision`, `calories`, `proteinG`, `carbsG` and `fatG`. `syncedAt` is null for a local download. Daily totals are timestamped at noon on the food-log date; this is an aggregation timestamp, not a claimed meal time. Historical entries use their journal date even when entered later. DST offsets are calculated for the exported day.
+
+### Build the iPhone Shortcut once
+
+Use the **Apple Shortcuts** JSON format for both methods. Apple's [API request guide](https://support.apple.com/guide/shortcuts/apd58d46713f/ios) explains Get Contents of URL, and its [JSON guide](https://support.apple.com/guide/shortcuts/apd0f2e057df/ios) explains dictionary values.
+
+1. File method: add **Select File**, then **Get Dictionary from Input**. Server method: add **URL** with `https://YOUR_SERVER/api/nutrition/daily?date=yesterday&format=shortcuts`, then **Get Contents of URL** (GET), with header `Authorization` = `Bearer YOUR_NUTRITION_TOKEN`.
+2. Get `error` from the dictionary. If it has a value, show it and stop. Also stop unless `complete` is true. Review `date` and, for the server method, `syncedAt`.
+3. Create a `Calorie` folder in iCloud Drive. Use **Get File from Folder** to look for `Calorie/<date>.txt` with “Error If Not Found” disabled. If any receipt exists, show “Already imported or needs reconciliation” and stop. Save a Text value `pending` to that exact file **before** any Health writes. This guards both duplicate runs and partial failures. Avoid running simultaneous copies of this Shortcut.
+4. Get `sampleDate` and convert it to a Date. Get the four numeric values, then add four **Log Health Sample** actions:
+
+   | Health type | JSON key | Unit |
+   | --- | --- | --- |
+   | Dietary Energy | `calories` | kcal |
+   | Protein | `proteinG` | g |
+   | Carbohydrates | `carbsG` | g |
+   | Total Fat | `fatG` | g |
+
+   Set each sample's date to the parsed `sampleDate`. Grant the requested Health permissions on your iPhone. Type labels may vary by iOS language.
+5. Only after all four actions succeed, overwrite `<date>.txt` with `revision`. The revision stays the same when unchanged data is re-uploaded. Do not use the last-sync timestamp as a deduplication key.
+6. Run manually and check Health → Nutrition before enabling a daily personal automation. Fetching yesterday avoids importing an unfinished current day. Ensure the source browser has synced after the last meal and Finish day action.
+
+**Corrections and partial failures:** Shortcuts writes additive Health samples. This backend cannot observe, replace, roll back or deduplicate Health writes on its own. If the log changes or only some of the four writes succeeded, reconcile that date's samples created by this Shortcut in Health before deleting its receipt and rerunning. Do not delete other apps' samples. Refreshing the backend does not modify previously imported Health samples. Reading JSON successfully is not proof of a Health import.
+
+This bridge has automated route/format tests; final Health write permissions and the Shortcut must be verified on a physical iPhone. A future native HealthKit client could provide reliable sample identifiers and update handling.
 
 ## Architecture
 

@@ -126,11 +126,20 @@ export interface MealChange {
 }
 export interface BodyMetrics {
   date: string;
+  waistCm?: number;
   bmi?: number;
   bodyFatPercent?: number;
   leanBodyMassKg?: number;
 }
+export interface RecoveryRecord {
+  date: string;
+  sleepHours?: number;
+  hunger?: "low" | "steady" | "high";
+  energy?: "low" | "steady" | "high";
+  steps?: number;
+}
 export interface CoachUpdate {
+  recovery?: RecoveryRecord[];
   research?: { status: "found" | "no_results" | "unavailable"; sources: NutritionSource[]; note: string };
   bodyMetrics?: BodyMetrics[];
   title: string;
@@ -142,6 +151,7 @@ export interface CoachUpdate {
   events: Omit<CoachEvent, "id">[];
   reflection: string | null;
   focusCompleted: boolean;
+  removedPractices?: { date: string; focus: string }[];
   completedDays?: { date: string; complete: boolean }[];
   removedEventIds?: string[];
   options: { title: string; description: string }[];
@@ -163,6 +173,7 @@ export interface NutritionEvidence {
   fields: ("kcal" | "proteinG" | "carbsG" | "fatG")[];
 }
 export interface CoachContext {
+  recovery?: RecoveryRecord[];
   logDate?: string;
   bodyMetrics?: BodyMetrics[];
   today: string;

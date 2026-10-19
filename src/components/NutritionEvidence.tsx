@@ -1,3 +1,4 @@
+import { Disclosure } from "./Motion";
 import type { FoodItem, NutritionSource } from "../../shared/types";
 
 export function SourceLinks({ sources }: { sources: NutritionSource[] }) {
@@ -13,12 +14,11 @@ const labels = { kcal: "Calories", proteinG: "protein", carbsG: "carbs", fatG: "
 export function NutritionEvidence({ item }: { item: FoodItem }) {
   const evidence = item.evidence;
   if (!evidence) return <span className="evidence-tag estimate">Estimated nutrition</span>;
-  return <details className="nutrition-evidence">
-    <summary><span className="evidence-tag">↗ Source-linked</span> View nutrition sources</summary>
+  return <Disclosure className="nutrition-evidence" title={<><span className="evidence-tag">↗ Source-linked</span> View nutrition sources</>}>
     <div className="evidence-content">
       <p><strong>{evidence.market}</strong> · {evidence.serving}</p>
       <p className="caption">Source-linked: {evidence.fields.map(f => labels[f]).join(", ")}. {evidence.fields.length < 4 ? "Other values are estimates. " : ""}AI matched this serving; review the original source.</p>
       <SourceLinks sources={evidence.sources} />
     </div>
-  </details>;
+  </Disclosure>;
 }

@@ -9,6 +9,7 @@ import {
   ImageSchema,
   date,
   BodyMetricsSchema,
+  RecoverySchema,
 } from "../shared/coach";
 import {
   PlanSchema,
@@ -22,6 +23,7 @@ import { AiError, checkKey, makeClient } from "../shared/providers";
 import { PROVIDERS } from "../shared/catalog";
 import { runLog, runPlan } from "../shared/pipeline";
 import type { FoodItem, Plan, Provider, ProviderStatus } from "../shared/types";
+import { createNutritionApi } from "./nutrition";
 
 try {
   process.loadEnvFile(".env");
@@ -30,6 +32,11 @@ try {
 }
 
 const app = new Hono();
+app.route("/api/nutrition", createNutritionApi({
+  token: process.env.NUTRITION_SYNC_TOKEN,
+  file: process.env.NUTRITION_DATA_FILE ?? "./data/nutrition.json",
+  allowedOrigins: (process.env.NUTRITION_ALLOWED_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean),
+}));
 app.use(
   "/api/*",
   bodyLimit({
@@ -153,6 +160,7 @@ const CoachBody = z.object({
   context: z.object({
     logDate: date.optional(),
     bodyMetrics: z.array(BodyMetricsSchema).max(90).optional(),
+    recovery: z.array(RecoverySchema).max(90).optional(),
     today: date,
     plan: PlanSchema.nullable(),
     entries: z.array(EntrySchema).max(500),
@@ -213,6 +221,8 @@ app.post("/api/coach", async (c) => {
 });
 
 if (process.env.NODE_ENV === "production") {
+  // Missing API routes must never fall through to an HTML page.
+  app.all("/api/*", c => c.json({ error: "API route not found." }, 404));
   app.use("/*", serveStatic({ root: "./dist" }));
   app.get("*", serveStatic({ root: "./dist", path: "index.html" }));
 }

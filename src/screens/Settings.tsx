@@ -7,8 +7,11 @@ import type { Data } from "../lib/data";
 import { BackupSchema } from "../../shared/state-schema";
 import { readHealthMeasurements, type HealthImport } from "../lib/health";
 import { localDate, shortDate } from "../lib/format";
+import { AutoHeight, SwitchPanel } from "../components/Motion";
 import { Sheet } from "../components/Sheet";
+import { NutritionConnection } from "../components/NutritionConnection";
 interface Props {
+  initialArea?: "ai" | "health" | "data";
   providers: ProviderStatus[] | null;
   serverDefault: Provider;
   mode: Mode;
@@ -18,6 +21,7 @@ interface Props {
   onConnected: () => void;
 }
 export function Settings({
+  initialArea = "ai",
   providers,
   serverDefault,
   mode,
@@ -27,6 +31,7 @@ export function Settings({
   onConnected,
 }: Props) {
   const state = useStore();
+  const [area, setArea] = useState(initialArea);
   const active = state.settings.provider ?? serverDefault;
   const [provider, setProvider] = useState<Provider>(active),
     [key, setKey] = useState(state.settings.apiKeys[active] ?? ""),
@@ -165,20 +170,21 @@ export function Settings({
     }
   }
   return (
-    <Sheet onClose={onClose}>
+    <Sheet onClose={onClose}>{closeSheet => <>
       <div className="section-top">
         <div>
-          <span className="small-label">MAKE IT YOURS</span>
-          <h2>Settings & connections</h2>
+          <h2>Settings</h2>
         </div>
         <button
           className="close-button"
           aria-label="Close settings"
-          onClick={onClose}
+          onClick={() => closeSheet()}
         >
           ×
         </button>
       </div>
+      <nav className="settings-nav" aria-label="Settings sections" style={{ "--settings-tab": ["ai", "health", "data"].indexOf(area) } as React.CSSProperties}><span className="settings-nav-indicator" aria-hidden="true" />{(["ai", "health", "data"] as const).map(tab => <button key={tab} aria-pressed={area === tab} onClick={() => setArea(tab)}>{tab === "ai" ? "Your AI" : tab === "health" ? "Apple Health" : "Your data"}</button>)}</nav>
+      <AutoHeight className="settings-panels"><SwitchPanel active={area === "ai"}>
       <section className="settings-section">
         <h3>Your AI</h3>
         <p className="caption">
@@ -235,7 +241,7 @@ export function Settings({
           </button>
         </div>
         {connectionError && <p className="error" role="alert">{connectionError}</p>}
-        {connectionMessage && <div className="connection-success" role="status"><p>{connectionMessage}</p>{!!key.trim() && <button className="text-link" onClick={onConnected}>{!state.plan || state.plan.demo ? "Create my personal plan" : "Back to my coach"} ↗</button>}</div>}
+        {connectionMessage && <div className="connection-success" role="status"><p>{connectionMessage}</p>{!!key.trim() && <button className="text-link" onClick={() => closeSheet(onConnected)}>{!state.plan || state.plan.demo ? "Create my personal plan" : "Back to my coach"} ↗</button>}</div>}
         <p className="caption">
           {mode === "direct"
             ? "Messages, attached photos and relevant history go directly to your chosen AI provider."
@@ -248,9 +254,10 @@ export function Settings({
           Searches add provider usage. Source links and estimates appear in your review.
         </p>
       </section>
+      </SwitchPanel><SwitchPanel active={area === "health"}>
       <section className="settings-section">
         <div className="section-top">
-          <h3>Apple Health</h3>
+          <h3>Import body measurements</h3>
           <span className="tag">Body measurements</span>
         </div>
         <p className="caption">
@@ -273,10 +280,12 @@ export function Settings({
           onChange={(e) => void importFile(e.target.files?.[0], "health")}
         />
         <p className="caption">
-          Automatic syncing needs a native iPhone app. Imported measurements can
+          Direct HealthKit syncing needs a native iPhone app. Imported measurements can
           become part of the context sent to your AI when you ask for coaching.
         </p>
       </section>
+      <NutritionConnection />
+      </SwitchPanel><SwitchPanel active={area === "data"}>
       <section className="settings-section">
         <h3>Your data, in your hands</h3>
         <p className="caption">
@@ -306,6 +315,7 @@ export function Settings({
           onChange={(e) => void importFile(e.target.files?.[0], "backup")}
         />
       </section>
+      </SwitchPanel></AutoHeight>
       {(weights || backup) && (
         <div className="import-preview" ref={preview}>
           <span className="small-label">REVIEW IMPORT</span>
@@ -406,6 +416,7 @@ export function Settings({
                 onClick={() => {
                   try {
                     onReset();
+                    closeSheet();
                   } catch (e) {
                     setError(String(e));
                   }
@@ -423,10 +434,10 @@ export function Settings({
             Start over
           </button>
         )}
-        <button className="text-link" onClick={onClose}>
+        <button className="text-link" onClick={() => closeSheet()}>
           Done
         </button>
       </div>
-    </Sheet>
+    </>}</Sheet>
   );
 }

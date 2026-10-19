@@ -1250,6 +1250,15 @@ summary {
   padding: 24px 0;
   border-bottom: 1px solid var(--hair);
 }
+.nutrition-connection > .small-label,
+.nutrition-setup > .small-label { display: block; margin-top: 16px; }
+.nutrition-setup { margin-top: 16px; border-top: 1px solid var(--hair); padding-top: 8px; }
+.nutrition-setup summary { padding: 16px 0; cursor: pointer; font-size: 14px; font-weight: 600; }
+.nutrition-setup ol { padding-left: 24px; }
+.nutrition-setup li { margin-bottom: 16px; }
+.nutrition-url { display: block; padding: 16px; border-radius: 8px; background: var(--tint); font-size: 12px; overflow-wrap: anywhere; }
+.nutrition-connection .section-top { flex-wrap: wrap; gap: 8px; }
+.nutrition-connection .small-btn[aria-pressed="false"] { background: transparent; color: var(--accent); border: 1px solid var(--hair); }
 .provider-options {
   display: flex;
   gap: 8px;

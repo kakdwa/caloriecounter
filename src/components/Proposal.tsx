@@ -1,3 +1,5 @@
+import { Disclosure, useMotionPreference } from "./Motion";
+import AnimatedContent from "./react-bits/AnimatedContent";
 import type { CoachUpdate } from "../../shared/types";
 import { NutritionEvidence, SourceLinks } from "./NutritionEvidence";
 import { hasChanges } from "../lib/data";
@@ -17,15 +19,17 @@ export function Proposal({
   busy: boolean;
 }) {
   const changes = hasChanges(u);
+  const reduced = useMotionPreference();
   return (
+    <AnimatedContent distance={reduced ? 0 : 8} duration={reduced ? 0 : 0.24} ease="power2.out" className="proposal-arrival">
     <section className="proposal" aria-labelledby="proposal-title">
       <div className="section-top">
         <span className="eyebrow blue">
           {u.demo
-            ? "SAMPLE RESPONSE"
+            ? "Sample response"
             : changes
-              ? "READY FOR YOUR REVIEW"
-              : "YOUR COACH"}
+              ? "Ready to review"
+              : "Your coach"}
         </span>
         <button
           className="close-button"
@@ -41,18 +45,18 @@ export function Proposal({
       {u.research && <div className={`research-receipt ${u.research.status}`}>
         <span className="research-icon" aria-hidden="true">↗</span>
         <div><strong>{u.research.status === "found" ? "Nutrition sources found" : "Using estimates"}</strong><p>{u.research.note}</p>
-        {!!u.research.sources.length && <details><summary>View all {u.research.sources.length} sources</summary><SourceLinks sources={u.research.sources} /></details>}</div>
+        {!!u.research.sources.length && <Disclosure title={<>View all {u.research.sources.length} sources</>}><SourceLinks sources={u.research.sources} /></Disclosure>}</div>
       </div>}
       {u.question && (
         <div className="question">
-          <span className="small-label">ONE THING TO CLARIFY</span>
+          <span className="small-label">One thing to clarify</span>
           <p>{u.question}</p>
         </div>
       )}
       {u.plan && (
         <div className="preview-plan">
           <span className="small-label">
-            {u.plan.demo ? "FICTIONAL EXAMPLE PLAN" : "PROPOSED PLAN"}
+            {u.plan.demo ? "Fictional example plan" : "Proposed plan"}
           </span>
           <h3>{u.plan.coaching?.intention ?? u.plan.copy.summary}</h3>
           <div className="target-line">
@@ -69,7 +73,7 @@ export function Proposal({
           </p>
           {u.plan.coaching && (
             <>
-              <div className="small-label">THIS WEEK'S PRACTICE</div>
+              <div className="small-label">This week’s practice</div>
               <p>{u.plan.coaching.focus}</p>
               <p className="caption">{u.plan.coaching.focusReason}</p>
               <div className="tags">
@@ -77,13 +81,14 @@ export function Proposal({
                   <span key={v}>{v}</span>
                 ))}
               </div>
-              <div className="small-label mt-16">YOUR FALLBACK MEALS</div>
+              <Disclosure title="Your go-to meals">
               {u.plan.coaching.meals.map((m) => (
                 <div className="preview-item" key={m.title}>
                   <strong>{m.title}</strong>
                   <p className="caption">{m.description}</p>
                 </div>
               ))}
+              </Disclosure>
             </>
           )}
           <p className="caption">
@@ -99,10 +104,10 @@ export function Proposal({
           <div className="section-top">
             <span className="small-label">
               {m.operation === "add"
-                ? "ADD MEAL"
+                ? "Add meal"
                 : m.operation === "remove"
-                  ? "REMOVE MEAL"
-                  : "UPDATE MEAL"}{" "}
+                  ? "Remove meal"
+                  : "Update meal"}{" "}
               · {shortDate(m.date)}
             </span>
             <strong>
@@ -137,9 +142,10 @@ export function Proposal({
       {u.bodyMetrics?.map((m) => (
         <div className="preview-item" key={m.date}>
           <span className="small-label">
-            BODY MEASUREMENTS · {shortDate(m.date)}
+            Body measurements · {shortDate(m.date)}
           </span>
           <div className="body-preview">
+            {m.waistCm != null && <span>Waist <strong>{m.waistCm.toFixed(1)} cm</strong></span>}
             {m.bmi != null && (
               <span>
                 BMI <strong>{m.bmi.toFixed(1)}</strong>
@@ -157,13 +163,22 @@ export function Proposal({
             )}
           </div>
           <p className="caption">
-            Scale estimates. These won't automatically change your targets.
+            Reported measurements. Your targets stay unchanged.
           </p>
         </div>
       ))}
+      {u.recovery?.map(r => <div className="preview-item" key={`recovery-${r.date}`}>
+        <span className="small-label">Recovery · {shortDate(r.date)}</span>
+        <div className="body-preview">
+          {r.sleepHours != null && <span>Sleep <strong>{r.sleepHours} h</strong></span>}
+          {r.hunger && <span>Hunger <strong>{r.hunger === "steady" ? "Manageable" : r.hunger}</strong></span>}
+          {r.energy && <span>Energy <strong>{r.energy}</strong></span>}
+          {r.steps != null && <span>Steps <strong>{n(r.steps)}</strong></span>}
+        </div>
+      </div>)}
       {u.events.map((e, i) => (
         <div className="preview-item" key={i}>
-          <span className="small-label">UPCOMING · {shortDate(e.date)}</span>
+          <span className="small-label">Coming up · {shortDate(e.date)}</span>
           <h3>{e.title}</h3>
           <p className="caption">{e.detail}</p>
         </div>
@@ -173,12 +188,12 @@ export function Proposal({
       )}
       {u.reflection && (
         <div className="preview-item">
-          <span className="small-label">SAVE YOUR REFLECTION</span>
+          <span className="small-label">Save your reflection</span>
           <p>{u.reflection}</p>
         </div>
       )}
       {u.focusCompleted && (
-        <div className="practice-receipt">✧ Record today's practice</div>
+        <div className="practice-receipt">Record today's practice</div>
       )}
       {u.completedDays?.map((d) => (
         <p key={d.date}>
@@ -190,7 +205,6 @@ export function Proposal({
         <div className="coach-options">
           {u.options.map((o, i) => (
             <div key={i}>
-              <span className="option-number">0{i + 1}</span>
               <div>
                 <h3>{o.title}</h3>
                 <p className="caption">{o.description}</p>
@@ -225,5 +239,6 @@ export function Proposal({
         </>
       )}
     </section>
+    </AnimatedContent>
   );
 }

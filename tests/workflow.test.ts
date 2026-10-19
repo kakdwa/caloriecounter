@@ -48,6 +48,23 @@ test("quick controls reject invalid, empty, future and fictional personal-record
   data.plan!.demo = false;
   assert.throws(() => quickUpdate(data, { type: "repeat", entryId: "breakfast", date: today }, today), /Sample meals/);
 });
+test("unchecking today's practice removes only this focus and remains an undoable transaction", async () => {
+  const data = await sample();
+  const focus = data.plan!.coaching!.focus;
+  data.memory.practices = [
+    { date: today, focus },
+    { date: today, focus: "A previous focus" },
+    { date: "2026-10-14", focus },
+  ];
+  const snapshot = structuredClone(data);
+  const next = applyUpdate(data, quickUpdate(data, { type: "practice", complete: false }, today), today);
+  assert.deepEqual(next.memory.practices, snapshot.memory.practices.slice(1));
+  assert.deepEqual(data, snapshot, "the prior state remains intact for Undo");
+  const checkedAgain = applyUpdate(next, quickUpdate(next, { type: "practice", complete: true }, today), today);
+  assert.equal(checkedAgain.memory.practices.filter(p => p.date === today && p.focus === focus).length, 1);
+  assert.deepEqual(checkedAgain.entries, snapshot.entries);
+  assert.deepEqual(checkedAgain.completedDays, snapshot.completedDays);
+});
 test("tab drafts recover photos, edit selection and review without applying records", async () => {
   const values = new Map<string, string>();
   const storage = { getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => { values.set(k, v); }, removeItem: (k: string) => { values.delete(k); } };

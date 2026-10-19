@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { CoachStage, ImageInput } from "../../shared/types";
+import { AutoHeight } from "./Motion";
 import { RequestActivity } from "./RequestActivity";
 import { useSpeech } from "../lib/speech";
 import { MicIcon, SendIcon } from "./Icons";
@@ -125,7 +126,7 @@ export function Composer(p: Props) {
         {!p.draftSaved && <div className="composer-error" role="status">Draft storage is full. Keep this tab open until you’ve saved your changes.</div>}
         <form
           className={`composer ${expanded ? "expanded" : "compact"} ${speech.listening ? "is-listening" : ""} ${p.busy ? "is-working" : ""} ${p.text.trim() || p.images.length ? "has-input" : ""}`}
-          onFocusCapture={() => setFocused(true)}
+          onFocusCapture={e => { if ((e.target as Element) === input.current) setFocused(true); }}
           onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
           onPaste={e => {
             const photos = Array.from(e.clipboardData.files).filter(f => f.type.startsWith("image/"));
@@ -136,6 +137,7 @@ export function Composer(p: Props) {
             send();
           }}
         >
+          <AutoHeight className="composer-size"><div className="composer-entry">
           {p.busy && <RequestActivity stage={p.stage} input={p.submitted} onStop={p.onStop} />}
           {!!p.images.length && (
             <div className="attachments">
@@ -185,6 +187,7 @@ export function Composer(p: Props) {
               }
             }}
           />
+          </div></AutoHeight>
           <div className="composer-tools">
             <div className="row gap-8">
               <button
@@ -251,7 +254,7 @@ export function Composer(p: Props) {
             onChange={(e) => void attach(e.target.files)}
           />
         </form>
-        {expanded && !p.busy && <div className="dock-caption">{p.demo ? "Fictional sample · connect your AI in settings" : "Review before saving · draft kept in this tab"}</div>}
+        <div className="dock-caption">{p.demo ? "Fictional sample · connect your AI in settings" : "Review before saving · draft kept in this tab"}</div>
       </div>
     </div>
   );

@@ -6,12 +6,14 @@ import type {
   Plan,
   Provider,
   WeighIn,
+  RecoveryRecord,
 } from "../../shared/types";
 export interface Settings {
   provider: Provider | null;
   apiKeys: Partial<Record<Provider, string>>;
 }
 export interface Data {
+  recovery: RecoveryRecord[];
   bodyMetrics: BodyMetrics[];
   plan: Plan | null;
   entries: Entry[];
@@ -24,6 +26,7 @@ export interface State extends Data {
   settings: Settings;
 }
 export const emptyData = (): Data => ({
+  recovery: [],
   bodyMetrics: [],
   plan: null,
   entries: [],
@@ -37,6 +40,7 @@ export const uid = () =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 export function hasChanges(u: CoachUpdate) {
   return Boolean(
+    u.recovery?.length ||
     u.bodyMetrics?.length ||
     u.plan ||
     u.meals.length ||
@@ -44,6 +48,7 @@ export function hasChanges(u: CoachUpdate) {
     u.events.length ||
     u.reflection ||
     u.focusCompleted ||
+    u.removedPractices?.length ||
     u.completedDays?.length ||
     u.removedEventIds?.length,
   );
@@ -89,6 +94,11 @@ export function applyUpdate(data: Data, u: CoachUpdate, today: string): Data {
     ];
   }
   next.bodyMetrics.sort((a, b) => a.date.localeCompare(b.date));
+  for (const record of u.recovery ?? []) {
+    const old = next.recovery.find(r => r.date === record.date);
+    next.recovery = [...next.recovery.filter(r => r.date !== record.date), { ...old, ...record }];
+  }
+  next.recovery.sort((a, b) => a.date.localeCompare(b.date));
   next.weighIns.sort((a, b) => a.date.localeCompare(b.date));
   for (const e of u.events)
     next.memory.events = [
@@ -103,6 +113,8 @@ export function applyUpdate(data: Data, u: CoachUpdate, today: string): Data {
   if (u.reflection)
     next.memory.reflections.push({ date: today, text: u.reflection });
   const focus = next.plan?.coaching?.focus;
+  next.memory.practices = next.memory.practices.filter(p =>
+    !u.removedPractices?.some(removed => removed.date === p.date && removed.focus === p.focus));
   if (
     u.focusCompleted &&
     focus &&

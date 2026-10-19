@@ -8,6 +8,19 @@ const base = {
   strokeLinejoin: "round" as const,
 };
 
+/** Category identity is repeated with a text label, never conveyed by colour alone. */
+export function NutrientSymbol({ name }: { name: string }) {
+  return <svg className="nutrient-symbol" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    {name === "protein" ? <circle cx="12" cy="12" r="10" fill="var(--accent)" />
+      : name === "carbs" ? <path d="M12 2 22 21H2Z" fill="var(--yellow)" stroke="var(--ink)" strokeWidth="1.25" />
+      : <path d="M3 3h18v18H3z" fill="var(--red)" />}
+  </svg>;
+}
+
+export function TodayIcon() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" {...base}><rect x="4" y="5" width="16" height="16" rx="4"/><path d="M8 3v4m8-4v4M4 11h16m-11 5h3"/></svg>;
+}
+
 export function MicIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" {...base}>

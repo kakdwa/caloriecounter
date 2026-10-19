@@ -4,7 +4,7 @@ import { date as DateSchema } from "../../shared/coach";
 
 export type QuickAction =
   | { type: "complete"; date: string; complete: boolean }
-  | { type: "practice" }
+  | { type: "practice"; complete?: boolean }
   | { type: "repeat"; entryId: string; date: string }
   | { type: "remove"; entryId: string };
 
@@ -17,7 +17,8 @@ export function quickUpdate(data: Data, action: QuickAction, today: string): Coa
   };
   if (action.type === "practice") {
     if (!data.plan?.coaching?.focus) throw new Error("Choose a focus in your plan first.");
-    update.focusCompleted = true;
+    update.focusCompleted = action.complete !== false;
+    if (action.complete === false) update.removedPractices = [{ date: today, focus: data.plan.coaching.focus }];
   } else if (action.type === "complete") {
     if (!DateSchema.safeParse(action.date).success || action.date > today)
       throw new Error("Choose today or an earlier day.");
